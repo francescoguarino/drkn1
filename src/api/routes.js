@@ -34,6 +34,19 @@ function setupRoutes(networkManager) {
     }
   });
 
+  // Endpoint per lista peer connessi
+  router.get("/network/peers", async (req, res) => {
+    try {
+      const peers = networkManager.getConnectedPeers();
+      res.json({
+        total: peers.length,
+        peers: peers,
+      });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return router;
 }
 

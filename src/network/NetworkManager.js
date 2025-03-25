@@ -176,6 +176,23 @@ class NetworkManager extends EventEmitter {
     }
   }
 
+  getConnectedPeers() {
+    const peersList = [];
+
+    for (const [peerId, peer] of this.peers.entries()) {
+      peersList.push({
+        id: peerId,
+        address: peer.address,
+        port: peer.port,
+        lastSeen: new Date(peer.lastSeen).toISOString(),
+        messageCount: peer.messageCount,
+        isActive: Date.now() - peer.lastSeen < 300000, // 5 minuti
+      });
+    }
+
+    return peersList;
+  }
+
   // Metodi privati
   _handleConnection(conn, info) {
     const peerId = info.id.toString("hex");
