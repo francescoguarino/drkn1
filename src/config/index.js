@@ -8,15 +8,19 @@ const config = {
 
   // Configurazione di rete
   network: {
-    channel: process.env.CHANNEL || "drakon",
-    defaultP2PPort: parseInt(process.env.P2P_PORT) || 6000,
-    defaultHTTPPort: parseInt(process.env.HTTP_PORT) || 7000,
+    channel: Buffer.from(process.env.CHANNEL || "drakon"),
+    defaultP2PPort: parseInt(process.env.P2P_PORT) || 6001,
+    defaultHTTPPort: parseInt(process.env.API_PORT) || 3000,
     maxPeers: parseInt(process.env.MAX_PEERS) || 50,
     bootstrap: process.env.BOOTSTRAP_NODES
       ? JSON.parse(process.env.BOOTSTRAP_NODES)
       : [],
     dht: {
-      bootstrap: [],
+      bootstrap: process.env.BOOTSTRAP_NODES
+        ? JSON.parse(process.env.BOOTSTRAP_NODES).map(
+            (node) => `${node.host}:${node.port}`
+          )
+        : [],
       interval: 30000,
     },
   },
