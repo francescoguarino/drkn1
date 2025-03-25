@@ -6,11 +6,9 @@ After=network.target
 Type=simple
 User=drakon
 Group=drakon
-WorkingDirectory=/opt/drakon
+WorkingDirectory=/opt/drakon-node
 Environment=NODE_ENV=production
-Environment=P2P_PORT=6000
-Environment=HTTP_PORT=7000
-ExecStart=/usr/bin/node drakonNode.js
+ExecStart=/usr/bin/npm run start:prod
 Restart=always
 RestartSec=10
 StandardOutput=syslog
