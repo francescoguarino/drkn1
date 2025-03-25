@@ -1,12 +1,13 @@
 const express = require("express");
 const cors = require("cors");
-const routes = require("./routes");
+const setupRoutes = require("./routes");
 const logger = require("../utils/logger");
 
 class APIServer {
-  constructor() {
+  constructor(networkManager) {
     this.app = express();
     this.port = process.env.API_PORT || 3000;
+    this.networkManager = networkManager;
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -18,7 +19,7 @@ class APIServer {
   }
 
   setupRoutes() {
-    this.app.use("/api", routes);
+    this.app.use("/api", setupRoutes(this.networkManager));
   }
 
   start() {

@@ -4,7 +4,7 @@ const logger = require("./utils/logger");
 const config = require("./config");
 const NetworkManager = require("./network/NetworkManager");
 const BlockchainManager = require("./core/BlockchainManager");
-const APIServer = require("./api/APIServer");
+const APIServer = require("./api/server");
 const WalletManager = require("./core/WalletManager");
 const { showBanner, showNodeInfo } = require("./utils/banner");
 const clear = require("clear");
@@ -15,7 +15,8 @@ class DrakonNode extends EventEmitter {
     this.network = new NetworkManager();
     this.blockchain = new BlockchainManager();
     this.wallet = new WalletManager();
-    this.api = new APIServer(this);
+    this.api = new APIServer(this.network);
+    this.isRunning = false;
     this.setupEventHandlers();
   }
 
@@ -43,14 +44,17 @@ class DrakonNode extends EventEmitter {
       await this.api.start();
       logger.info("✓ API server in ascolto sulla porta 3000");
 
-      this.emit("started");
+      this.isRunning = true;
       logger.info("Drakon Node avviato con successo!");
 
-      // Mostra le informazioni del nodo
-      this._updateNodeInfo();
+      // Aggiorna le statistiche ogni minuto
+      this._startStatsUpdate();
 
-      // Aggiorna le informazioni ogni minuto
-      setInterval(() => this._updateNodeInfo(), 60000);
+      // Gestione graceful shutdown
+      process.on("SIGINT", async () => {
+        await this.stop();
+        process.exit(0);
+      });
     } catch (error) {
       logger.error("Errore durante l'avvio di Drakon Node:", error);
       throw error;
@@ -65,7 +69,7 @@ class DrakonNode extends EventEmitter {
       await this.network.stop();
       await this.blockchain.stop();
 
-      this.emit("stopped");
+      this.isRunning = false;
       logger.info("Drakon Node arrestato con successo");
     } catch (error) {
       logger.error("Errore durante l'arresto:", error);
@@ -103,6 +107,14 @@ class DrakonNode extends EventEmitter {
     });
   }
 
+  _startStatsUpdate() {
+    setInterval(() => {
+      if (this.isRunning) {
+        this._updateNodeInfo();
+      }
+    }, 60000); // Aggiorna ogni minuto
+  }
+
   _updateNodeInfo() {
     const info = {
       network: this.network.getStats(),
@@ -114,31 +126,11 @@ class DrakonNode extends EventEmitter {
   }
 }
 
-// Gestione graceful shutdown
-process.on("SIGINT", async () => {
-  try {
-    const node = global.drakonNode;
-    if (node) {
-      logger.info("Ricevuto segnale SIGINT. Arresto in corso...");
-      await node.stop();
-    }
-    process.exit(0);
-  } catch (error) {
-    logger.error("Errore durante l'arresto:", error);
-    process.exit(1);
-  }
+// Avvia il nodo
+const node = new DrakonNode();
+node.start().catch((error) => {
+  logger.error("Errore durante l'avvio del nodo:", error);
+  process.exit(1);
 });
 
-// Avvio del nodo
-async function main() {
-  try {
-    const node = new DrakonNode();
-    global.drakonNode = node;
-    await node.start();
-  } catch (error) {
-    logger.error("Errore durante l'avvio del nodo:", error);
-    process.exit(1);
-  }
-}
-
-main();
+module.exports = DrakonNode;
