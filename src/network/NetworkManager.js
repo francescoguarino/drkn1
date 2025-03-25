@@ -145,6 +145,26 @@ class NetworkManager extends EventEmitter {
     };
   }
 
+  async broadcastMessage(message) {
+    try {
+      const messageData = {
+        type: "broadcast",
+        content: message,
+        timestamp: Date.now(),
+        sender: this.nodeId,
+      };
+
+      this.swarm.broadcast(JSON.stringify(messageData));
+      this.logger.info(`Messaggio broadcast inviato: ${message}`);
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Errore nell'invio del messaggio broadcast: ${error.message}`
+      );
+      return false;
+    }
+  }
+
   // Metodi privati
   _handleConnection(conn, info) {
     const peerId = info.id.toString("hex");
@@ -221,6 +241,28 @@ class NetworkManager extends EventEmitter {
 
       this.emit("message", { type: message.type, data: message.data, peerId });
       logger.debug(`Received ${message.type} message from ${peerId}`);
+
+      switch (message.type) {
+        case "broadcast":
+          this.logger.info(
+            `Messaggio ricevuto da ${message.sender}: ${message.content}`
+          );
+          // Emetti l'evento per il messaggio ricevuto
+          this.emit("message", {
+            sender: message.sender,
+            content: message.content,
+            timestamp: message.timestamp,
+          });
+          break;
+
+        case "ping":
+          // ... existing code ...
+          break;
+
+        case "network-info":
+          // ... existing code ...
+          break;
+      }
     } catch (error) {
       logger.error(`Error handling message from ${peerId}:`, error);
     }
