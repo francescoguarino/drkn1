@@ -7,6 +7,7 @@ const BlockchainManager = require("./core/BlockchainManager");
 const APIServer = require("./api/APIServer");
 const WalletManager = require("./core/WalletManager");
 const { showBanner, showNodeInfo } = require("./utils/banner");
+const clear = require("clear");
 
 class DrakonNode extends EventEmitter {
   constructor() {
@@ -15,106 +16,101 @@ class DrakonNode extends EventEmitter {
     this.blockchain = new BlockchainManager();
     this.wallet = new WalletManager();
     this.api = new APIServer(this);
-
     this.setupEventHandlers();
   }
 
   async start() {
     try {
+      // Pulisci lo schermo e mostra il banner
+      clear();
       showBanner();
-      logger.info("Starting Drakon Node...");
+
+      logger.info("Inizializzazione Drakon Node...");
 
       // Inizializza il wallet
       await this.wallet.initialize();
-      logger.info("Wallet initialized");
+      logger.info("✓ Wallet inizializzato");
 
       // Inizializza la blockchain
       await this.blockchain.initialize();
-      logger.info("Blockchain initialized");
+      logger.info("✓ Blockchain inizializzata");
 
       // Avvia il network manager
       await this.network.start();
-      logger.info("Network manager started");
+      logger.info("✓ Network manager avviato");
 
-      // Avvia il server API se abilitato
-      if (config.api.enabled) {
-        await this.api.start();
-        logger.info(`API server listening on port ${config.api.port}`);
-      }
+      // Avvia il server API
+      await this.api.start();
+      logger.info("✓ API server in ascolto sulla porta 3000");
 
       this.emit("started");
-      logger.info("Drakon Node started successfully");
+      logger.info("Drakon Node avviato con successo!");
 
       // Mostra le informazioni del nodo
-      showNodeInfo(this.getNodeInfo());
+      this._updateNodeInfo();
 
       // Aggiorna le informazioni ogni minuto
-      setInterval(() => {
-        showNodeInfo(this.getNodeInfo());
-      }, 60000);
+      setInterval(() => this._updateNodeInfo(), 60000);
     } catch (error) {
-      logger.error("Failed to start Drakon Node:", error);
+      logger.error("Errore durante l'avvio di Drakon Node:", error);
       throw error;
     }
   }
 
   async stop() {
     try {
-      logger.info("Stopping Drakon Node...");
+      logger.info("Arresto Drakon Node...");
 
-      if (config.api.enabled) {
-        await this.api.stop();
-      }
-
+      await this.api.stop();
       await this.network.stop();
       await this.blockchain.stop();
 
       this.emit("stopped");
-      logger.info("Drakon Node stopped successfully");
+      logger.info("Drakon Node arrestato con successo");
     } catch (error) {
-      logger.error("Error stopping Drakon Node:", error);
+      logger.error("Errore durante l'arresto:", error);
       throw error;
     }
   }
 
   setupEventHandlers() {
-    // Gestione eventi di rete
-    this.network.on("peer:connected", (peer) => {
-      logger.info(`Peer connected: ${peer.id}`);
-      this.emit("peer:connected", peer);
+    // Eventi di rete
+    this.network.on("peer:connected", ({ peerId, info }) => {
+      logger.info(`Nuovo peer connesso: ${peerId} (${info.host}:${info.port})`);
+      this._updateNodeInfo();
     });
 
-    this.network.on("peer:disconnected", (peer) => {
-      logger.info(`Peer disconnected: ${peer.id}`);
-      this.emit("peer:disconnected", peer);
+    this.network.on("peer:disconnected", ({ peerId }) => {
+      logger.info(`Peer disconnesso: ${peerId}`);
+      this._updateNodeInfo();
     });
 
-    // Gestione eventi blockchain
+    // Eventi blockchain
     this.blockchain.on("block:added", (block) => {
-      logger.info(`New block added: ${block.hash}`);
+      logger.info(`Nuovo blocco aggiunto: ${block.hash}`);
       this.network.broadcast("block", block);
-      this.emit("block:added", block);
+      this._updateNodeInfo();
     });
 
     this.blockchain.on("chain:updated", () => {
-      logger.info("Blockchain updated");
-      this.emit("chain:updated");
+      logger.info("Blockchain aggiornata");
+      this._updateNodeInfo();
     });
 
     // Gestione errori
     this.on("error", (error) => {
-      logger.error("Node error:", error);
+      logger.error("Errore del nodo:", error);
     });
   }
 
-  getNodeInfo() {
-    return {
-      version: config.version,
+  _updateNodeInfo() {
+    const info = {
       network: this.network.getStats(),
       blockchain: this.blockchain.getStats(),
       wallet: this.wallet.getInfo(),
       uptime: process.uptime(),
     };
+    showNodeInfo(info);
   }
 }
 
@@ -123,12 +119,12 @@ process.on("SIGINT", async () => {
   try {
     const node = global.drakonNode;
     if (node) {
-      logger.info("Received SIGINT signal. Shutting down...");
+      logger.info("Ricevuto segnale SIGINT. Arresto in corso...");
       await node.stop();
     }
     process.exit(0);
   } catch (error) {
-    logger.error("Error during shutdown:", error);
+    logger.error("Errore durante l'arresto:", error);
     process.exit(1);
   }
 });
@@ -140,7 +136,7 @@ async function main() {
     global.drakonNode = node;
     await node.start();
   } catch (error) {
-    logger.error("Failed to start node:", error);
+    logger.error("Errore durante l'avvio del nodo:", error);
     process.exit(1);
   }
 }

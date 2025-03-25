@@ -4,14 +4,15 @@ const defaults = require("dat-swarm-defaults");
 const getPort = require("get-port");
 const crypto = require("crypto");
 const logger = require("../utils/logger");
-const config = require("../config");
+const Discovery = require("./Discovery");
 const RoutingTable = require("./RoutingTable");
 
 class NetworkManager extends EventEmitter {
   constructor() {
     super();
     this.peers = new Map();
-    this.routingTable = new RoutingTable(config.network.maxPeers);
+    this.routingTable = new RoutingTable(50); // Max peers
+    this.discovery = new Discovery();
     this.swarm = null;
     this.myId = crypto.randomBytes(32);
     this.started = false;
@@ -21,6 +22,8 @@ class NetworkManager extends EventEmitter {
       messagesSent: 0,
       messagesReceived: 0,
       lastMessageTime: null,
+      networkType: "unknown",
+      myAddress: null,
     };
   }
 
@@ -31,7 +34,17 @@ class NetworkManager extends EventEmitter {
     }
 
     try {
-      const port = await getPort({ port: config.network.defaultP2PPort });
+      // Ottieni informazioni sulla rete
+      const networkInfo = await this.discovery.getNetworkInfo();
+      this.stats.networkType = networkInfo.isPublic ? "public" : "private";
+      this.stats.myAddress = networkInfo.addresses[0];
+
+      // Trova i migliori nodi bootstrap
+      const bootstrapNodes = await this.discovery.findBestBootstrapNodes();
+      logger.info(`Found ${bootstrapNodes.length} bootstrap nodes`);
+
+      // Configura e avvia lo swarm
+      const port = await getPort({ port: 6001 });
 
       this.swarm = Swarm(
         defaults({
@@ -39,28 +52,37 @@ class NetworkManager extends EventEmitter {
           tcp: true,
           utp: true,
           dht: {
-            bootstrap: config.network.dht.bootstrap,
+            bootstrap: bootstrapNodes.map(
+              (node) => `${node.host}:${node.port}`
+            ),
           },
+          hash: false,
         })
       );
 
+      // Configura gli eventi dello swarm
+      this.swarm.on("connection", this._handleConnection.bind(this));
+      this.swarm.on("connection-closed", this._handleDisconnection.bind(this));
+      this.swarm.on("error", this._handleError.bind(this));
+
+      // Avvia lo swarm
       this.swarm.listen(port);
       logger.info(`P2P network listening on port ${port}`);
 
-      this.swarm.join(config.network.channel);
-      logger.info(`Joined P2P channel: ${config.network.channel}`);
+      // Unisciti al canale della rete
+      this.swarm.join(Buffer.from("drakon-network"));
+      logger.info(`Joined P2P channel: drakon-network`);
 
-      this.swarm.on("connection", this._handleConnection.bind(this));
-      this.swarm.on("error", this._handleError.bind(this));
+      // Avvia il ping periodico e la pulizia
+      this._startPingInterval();
+      this._startCleanupInterval();
 
       this.started = true;
-      this.emit("started");
-
-      // Avvia il ping periodico dei peer
-      this._startPingInterval();
-
-      // Avvia la pulizia periodica dei peer inattivi
-      this._startCleanupInterval();
+      this.emit("started", {
+        networkType: this.stats.networkType,
+        address: this.stats.myAddress,
+        port: port,
+      });
     } catch (error) {
       logger.error("Failed to start network manager:", error);
       throw error;
@@ -117,7 +139,7 @@ class NetworkManager extends EventEmitter {
       peersCount: this.peers.size,
       routingTableSize: this.routingTable.size(),
       myId: this.myId.toString("hex"),
-      channel: config.network.channel,
+      channel: "drakon-network",
     };
   }
 
@@ -126,7 +148,7 @@ class NetworkManager extends EventEmitter {
     const peerId = info.id.toString("hex");
 
     // Verifica se abbiamo già raggiunto il limite massimo di peer
-    if (this.peers.size >= config.network.maxPeers) {
+    if (this.peers.size >= this.routingTable.maxPeers) {
       logger.warn(
         `Rejecting connection from ${peerId}: max peers limit reached`
       );
@@ -134,7 +156,7 @@ class NetworkManager extends EventEmitter {
       return;
     }
 
-    logger.info(`New peer connection: ${peerId}`);
+    logger.info(`New peer connection: ${peerId} (${info.host}:${info.port})`);
 
     const peer = {
       conn,
@@ -145,6 +167,11 @@ class NetworkManager extends EventEmitter {
     };
 
     this.peers.set(peerId, peer);
+    this.discovery.addKnownPeer(peerId, {
+      host: info.host,
+      port: info.port,
+    });
+
     this.routingTable.addNode(peerId, {
       address: info.host,
       port: info.port,
@@ -153,11 +180,28 @@ class NetworkManager extends EventEmitter {
     this.stats.totalConnections++;
     this.stats.activeConnections = this.peers.size;
 
+    // Configura gli handler per i messaggi
     conn.on("data", (data) => this._handleMessage(data, peerId));
     conn.on("error", (error) => this._handlePeerError(error, peerId));
     conn.on("close", () => this._handlePeerDisconnect(peerId));
 
+    // Invia le informazioni di rete al nuovo peer
+    this._sendNetworkInfo(conn);
+
     this.emit("peer:connected", { peerId, info });
+  }
+
+  _sendNetworkInfo(conn) {
+    const knownPeers = this.discovery.getKnownPeers();
+    const networkInfo = {
+      type: "network-info",
+      data: {
+        peers: knownPeers,
+        networkType: this.stats.networkType,
+        address: this.stats.myAddress,
+      },
+    };
+    conn.write(JSON.stringify(networkInfo));
   }
 
   _handleMessage(data, peerId) {
@@ -215,7 +259,7 @@ class NetworkManager extends EventEmitter {
   _startPingInterval() {
     setInterval(() => {
       this.broadcast("ping", { timestamp: Date.now() });
-    }, config.network.dht.interval);
+    }, 60000); // Ogni minuto
   }
 
   _startCleanupInterval() {
