@@ -1,0 +1,21 @@
+[Unit]
+Description=Drakon Blockchain Node
+After=network.target
+
+[Service]
+Type=simple
+User=drakon
+Group=drakon
+WorkingDirectory=/opt/drakon
+Environment=NODE_ENV=production
+Environment=P2P_PORT=6000
+Environment=HTTP_PORT=7000
+ExecStart=/usr/bin/node drakonNode.js
+Restart=always
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=drakon-node
+
+[Install]
+WantedBy=multi-user.target 

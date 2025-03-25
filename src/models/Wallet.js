@@ -1,3 +1,4 @@
+const { generatePrime } = require("crypto");
 const { ec: EC } = require("elliptic");
 const fs = require("fs");
 

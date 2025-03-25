@@ -1,29 +1,42 @@
 {
-  "name": "blockchain",
-  "version": "0.0.001",
-  "description": "A simple blockchain implementation",
-  "main": "chain.js",
+  "name": "drakon-node",
+  "version": "1.0.0",
+  "description": "Drakon Blockchain Node",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node chain.js",
-    "test": "jest"
+    "start": "node src/index.js",
+    "start:dev": "NODE_ENV=development nodemon src/index.js",
+    "start:prod": "NODE_ENV=production node src/index.js",
+    "monitor": "node src/monitor.js",
+    "lint": "eslint src/",
+    "test": "jest",
+    "deploy": "bash scripts/deploy.sh"
   },
   "dependencies": {
     "async": "^3.2.5",
-    "babel-polyfill": "^6.26.0",
-    "bencode": "^2.0.3",
-    "bittorrent-dht": "^8.4.0",
-    "crypto-js": "^4.2.0",
-    "discovery-swarm": "^6.1.0",
-    "express": "^4.18.2",
-    "level": "^8.0.0",
-    "moment": "^2.30.1",
-    "elliptic": "^6.5.4",
-    "cron": "^3.1.6",
+    "axios": "^1.6.7",
     "body-parser": "^1.20.2",
+    "chalk": "^4.1.2",
+    "clear": "^0.1.0",
+    "cli-table3": "^0.6.3",
+    "cors": "^2.8.5",
+    "cron": "^3.1.6",
+    "dat-swarm-defaults": "^1.0.3",
+    "discovery-swarm": "^6.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "figlet": "^1.7.0",
     "get-port": "^5.1.1",
-    "dat-swarm-defaults": "^1.0.2"
+    "level": "^8.0.0",
+    "winston": "^3.11.0"
   },
   "devDependencies": {
-    "jest": "^29.7.0"
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
