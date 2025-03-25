@@ -149,16 +149,18 @@ class NetworkManager extends EventEmitter {
     try {
       const messageData = {
         type: "broadcast",
-        content: message,
-        timestamp: Date.now(),
-        sender: this.nodeId,
+        data: {
+          content: message,
+          timestamp: Date.now(),
+          sender: this.nodeId,
+        },
       };
 
       this.swarm.broadcast(JSON.stringify(messageData));
-      this.logger.info(`Messaggio broadcast inviato: ${message}`);
+      logger.info(`Messaggio broadcast inviato: ${message}`);
       return true;
     } catch (error) {
-      this.logger.error(
+      logger.error(
         `Errore nell'invio del messaggio broadcast: ${error.message}`
       );
       return false;
@@ -226,32 +228,20 @@ class NetworkManager extends EventEmitter {
     conn.write(JSON.stringify(networkInfo));
   }
 
-  _handleMessage(data, peerId) {
+  _handleMessage(message, peerId) {
     try {
-      const message = JSON.parse(data);
-      const peer = this.peers.get(peerId);
+      const parsedMessage = JSON.parse(message);
 
-      if (peer) {
-        peer.lastSeen = Date.now();
-        peer.messageCount++;
-      }
-
-      this.stats.messagesReceived++;
-      this.stats.lastMessageTime = Date.now();
-
-      this.emit("message", { type: message.type, data: message.data, peerId });
-      logger.debug(`Received ${message.type} message from ${peerId}`);
-
-      switch (message.type) {
+      switch (parsedMessage.type) {
         case "broadcast":
-          this.logger.info(
-            `Messaggio ricevuto da ${message.sender}: ${message.content}`
+          logger.info(
+            `Messaggio ricevuto da ${parsedMessage.data.sender}: ${parsedMessage.data.content}`
           );
-          // Emetti l'evento per il messaggio ricevuto
           this.emit("message", {
-            sender: message.sender,
-            content: message.content,
-            timestamp: message.timestamp,
+            type: "broadcast",
+            sender: parsedMessage.data.sender,
+            content: parsedMessage.data.content,
+            timestamp: parsedMessage.data.timestamp,
           });
           break;
 
@@ -264,7 +254,7 @@ class NetworkManager extends EventEmitter {
           break;
       }
     } catch (error) {
-      logger.error(`Error handling message from ${peerId}:`, error);
+      logger.error(`Errore nella gestione del messaggio: ${error.message}`);
     }
   }
 
