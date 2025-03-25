@@ -152,11 +152,11 @@ class NetworkManager extends EventEmitter {
         data: {
           content: message,
           timestamp: Date.now(),
-          sender: this.nodeId,
+          sender: this.myId.toString("hex"),
         },
       };
 
-      this.swarm.broadcast(JSON.stringify(messageData));
+      this.broadcast("broadcast", messageData.data);
       logger.info(`Messaggio broadcast inviato: ${message}`);
       return true;
     } catch (error) {
