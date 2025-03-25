@@ -8,11 +8,12 @@ User=drakon
 Group=drakon
 WorkingDirectory=/opt/drakon-node
 Environment=NODE_ENV=production
+Environment=HOME=/home/drakon
 ExecStart=/usr/bin/npm run start:prod
 Restart=always
 RestartSec=10
-StandardOutput=syslog
-StandardError=syslog
+StandardOutput=journal
+StandardError=journal
 SyslogIdentifier=drakon-node
 
 [Install]

@@ -77,8 +77,8 @@ LOG_FILE=logs/node.log
 # Database
 DB_PATH=db/blockchain
 
-# Bootstrap Nodes (separati da virgola)
-BOOTSTRAP_NODES=node1.drakon.network:6001,node2.drakon.network:6001
+# Bootstrap Nodes (in formato JSON array)
+BOOTSTRAP_NODES=["node1.drakon.network:6001","node2.drakon.network:6001"]
 
 # Wallet
 WALLET_PATH=data/wallet.json
