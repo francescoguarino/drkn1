@@ -46,24 +46,26 @@ class NetworkManager extends EventEmitter {
       // Configura e avvia lo swarm
       const port = await getPort({ port: 6001 });
 
-      this.swarm = Swarm(
-        defaults({
-          id: this.myId,
-          tcp: true,
-          utp: true,
-          dht: {
-            bootstrap: bootstrapNodes.map(
-              (node) => `${node.host}:${node.port}`
-            ),
-          },
-          hash: false,
-        })
-      );
+      const swarmOpts = defaults({
+        id: this.myId,
+        tcp: true,
+        utp: true,
+        dht: {
+          bootstrap: bootstrapNodes.map((node) => `${node.host}:${node.port}`),
+        },
+        hash: false,
+      });
+
+      this.swarm = new Swarm(swarmOpts);
 
       // Configura gli eventi dello swarm
-      this.swarm.on("connection", this._handleConnection.bind(this));
-      this.swarm.on("connection-closed", this._handleDisconnection.bind(this));
-      this.swarm.on("error", this._handleError.bind(this));
+      this.swarm.on("connection", (conn, info) =>
+        this._handleConnection(conn, info)
+      );
+      this.swarm.on("disconnection", (conn, info) =>
+        this._handlePeerDisconnect(info.id.toString("hex"))
+      );
+      this.swarm.on("error", (err) => this._handleError(err));
 
       // Avvia lo swarm
       this.swarm.listen(port);
