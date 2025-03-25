@@ -1,0 +1,29 @@
+{
+  "name": "blockchain",
+  "version": "0.0.001",
+  "description": "A simple blockchain implementation",
+  "main": "chain.js",
+  "scripts": {
+    "start": "node chain.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "async": "^3.2.5",
+    "babel-polyfill": "^6.26.0",
+    "bencode": "^2.0.3",
+    "bittorrent-dht": "^8.4.0",
+    "crypto-js": "^4.2.0",
+    "discovery-swarm": "^6.1.0",
+    "express": "^4.18.2",
+    "level": "^8.0.0",
+    "moment": "^2.30.1",
+    "elliptic": "^6.5.4",
+    "cron": "^3.1.6",
+    "body-parser": "^1.20.2",
+    "get-port": "^5.1.1",
+    "dat-swarm-defaults": "^1.0.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
