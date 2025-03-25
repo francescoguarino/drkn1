@@ -118,21 +118,27 @@ class NetworkManager extends EventEmitter {
   }
 
   broadcast(type, data) {
-    const message = JSON.stringify({ type, data });
-    let sentCount = 0;
+    try {
+      const message = JSON.stringify({ type, data });
+      let sentCount = 0;
 
-    for (const peer of this.peers.values()) {
-      try {
-        peer.conn.write(message);
-        this.stats.messagesSent++;
-        sentCount++;
-      } catch (error) {
-        logger.error(`Error broadcasting to peer: ${error.message}`);
+      for (const [peerId, peer] of this.peers.entries()) {
+        try {
+          peer.conn.write(message);
+          this.stats.messagesSent++;
+          sentCount++;
+          logger.debug(`Message sent to peer ${peerId}`);
+        } catch (error) {
+          logger.error(`Error sending to peer ${peerId}: ${error.message}`);
+        }
       }
-    }
 
-    logger.debug(`Broadcast ${type} message to ${sentCount} peers`);
-    return sentCount;
+      logger.debug(`Broadcast ${type} message to ${sentCount} peers`);
+      return sentCount > 0;
+    } catch (error) {
+      logger.error(`Error in broadcast: ${error.message}`);
+      return false;
+    }
   }
 
   getStats() {
@@ -148,17 +154,20 @@ class NetworkManager extends EventEmitter {
   async broadcastMessage(message) {
     try {
       const messageData = {
-        type: "broadcast",
-        data: {
-          content: message,
-          timestamp: Date.now(),
-          sender: this.myId.toString("hex"),
-        },
+        content: message,
+        timestamp: Date.now(),
+        sender: this.myId.toString("hex"),
       };
 
-      this.broadcast("broadcast", messageData.data);
-      logger.info(`Messaggio broadcast inviato: ${message}`);
-      return true;
+      const success = this.broadcast("broadcast", messageData);
+
+      if (success) {
+        logger.info(`Messaggio broadcast inviato: ${message}`);
+        return true;
+      } else {
+        logger.warn("Nessun peer disponibile per l'invio del messaggio");
+        return false;
+      }
     } catch (error) {
       logger.error(
         `Errore nell'invio del messaggio broadcast: ${error.message}`
