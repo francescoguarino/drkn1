@@ -1,64 +1,106 @@
-const chalk = require("chalk");
-const figlet = require("figlet");
-const clear = require("clear");
+import chalk from 'chalk';
+import Table from 'cli-table3';
 
-function showBanner() {
-  clear();
-  console.log(
-    chalk.red(
-      figlet.textSync("DRAKON NODE", {
-        font: "ANSI Shadow",
-        horizontalLayout: "full",
-      })
-    )
-  );
+export function displayBanner(config) {
+  const asciiArt = `
+  ██████╗  ██████╗  █████╗ ██╗  ██╗ ██████╗ ███╗   ██╗    ███╗   ██╗ ██████╗ ██████╗ ███████╗
+  ██╔══██╗██╔══██╗██╔══██╗██║ ██╔╝██╔═══██╗████╗  ██║    ████╗  ██║██╔═══██╗██╔══██╗██╔════╝
+  ██║  ██║██████╔╝███████║█████╔╝ ██║   ██║██╔██╗ ██║    ██╔██╗ ██║██║   ██║██║  ██║█████╗  
+  ██║  ██║██╔══██╗██╔══██║██╔═██╗ ██║   ██║██║╚██╗██║    ██║╚██╗██║██║   ██║██║  ██║██╔══╝  
+  ██████╔╝██║  ██║██║  ██║██║  ██╗╚██████╔╝██║ ╚████║    ██║ ╚████║╚██████╔╝██████╔╝███████╗
+  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝    ╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝
+                                                                                         
+`;
 
-  console.log(
-    chalk.yellow(
-      "═══════════════════════════════════════════════════════════════════════════════"
-    )
-  );
-  console.log(
-    chalk.blue("  🔗 Blockchain Network Node  ") +
-      chalk.gray("|") +
-      chalk.green("  Version: 1.0.0  ") +
-      chalk.gray("|") +
-      chalk.cyan("  Status: Active")
-  );
-  console.log(
-    chalk.yellow(
-      "═══════════════════════════════════════════════════════════════════════════════\n"
-    )
-  );
+  const banner = `
+${chalk.cyan(asciiArt)}
+${chalk.cyan('╔════════════════════════════════════════════════════════════════════════════╗')}
+${chalk.cyan('║')} ${chalk.white('Informazioni Nodo')}${' '.repeat(
+    71 - 'Informazioni Nodo'.length
+  )} ${chalk.cyan('║')}
+${chalk.cyan('╠════════════════════════════════════════════════════════════════════════════╣')}
+${chalk.cyan('║')} ${chalk.white('Versione:')} ${chalk.yellow(config.version || 'N/A')}${' '.repeat(
+    74 - ('Versione: '.length + (config.version?.length || 3))
+  )} ${chalk.cyan('║')}
+${chalk.cyan('║')} ${chalk.white('Network:')} ${chalk.yellow(
+    config.network?.type || 'N/A'
+  )}${' '.repeat(74 - ('Network: '.length + (config.network?.type?.length || 3)))} ${chalk.cyan(
+    '║'
+  )}
+${chalk.cyan('║')} ${chalk.white('Canale:')} ${chalk.yellow(config.channel || 'N/A')}${' '.repeat(
+    74 - ('Canale: '.length + (config.channel?.length || 3))
+  )} ${chalk.cyan('║')}
+${chalk.cyan('║')} ${chalk.white('Porta P2P:')} ${chalk.yellow(
+    config.p2p?.port || 'N/A'
+  )}${' '.repeat(
+    74 - ('Porta P2P: '.length + String(config.p2p?.port || 'N/A').length)
+  )} ${chalk.cyan('║')}
+${chalk.cyan('║')} ${chalk.white('Porta API:')} ${chalk.yellow(
+    config.api?.port || 'N/A'
+  )}${' '.repeat(
+    74 - ('Porta API: '.length + String(config.api?.port || 'N/A').length)
+  )} ${chalk.cyan('║')}
+${chalk.cyan('║')} ${chalk.white('Directory Dati:')} ${chalk.yellow(
+    config.storage?.path || 'N/A'
+  )}${' '.repeat(
+    74 - ('Directory Dati: '.length + (config.storage?.path?.length || 3))
+  )} ${chalk.cyan('║')}
+${chalk.cyan('╠════════════════════════════════════════════════════════════════════════════╣')}
+${chalk.cyan('║')} ${chalk.white('ID Nodo:')} ${chalk.yellow(config.node?.id || 'N/A')}${' '.repeat(
+    74 - ('ID Nodo: '.length + (config.node?.id?.length || 3))
+  )} ${chalk.cyan('║')}
+${chalk.cyan('║')} ${chalk.white('Mining:')} ${chalk.yellow(
+    config.mining?.enabled ? 'Abilitato' : 'Disabilitato'
+  )}${' '.repeat(
+    74 - ('Mining: '.length + (config.mining?.enabled ? 'Abilitato' : 'Disabilitato').length)
+  )} ${chalk.cyan('║')}
+${chalk.cyan('║')} ${chalk.white('Difficoltà Mining:')} ${chalk.yellow(
+    config.mining?.difficulty || 'N/A'
+  )}${' '.repeat(
+    74 - ('Difficoltà Mining: '.length + String(config.mining?.difficulty || 'N/A').length)
+  )} ${chalk.cyan('║')}
+${chalk.cyan('║')} ${chalk.white('Ambiente:')} ${chalk.yellow(
+    config.environment || process.env.NODE_ENV || 'development'
+  )}${' '.repeat(
+    74 -
+      ('Ambiente: '.length + (config.environment || process.env.NODE_ENV || 'development').length)
+  )} ${chalk.cyan('║')}
+${chalk.cyan('║')} ${chalk.white('Bootstrap Nodes:')} ${chalk.yellow(
+    Array.isArray(config.p2p?.bootstrapNodes) ? config.p2p.bootstrapNodes.length : 'N/A'
+  )}${' '.repeat(
+    74 -
+      ('Bootstrap Nodes: '.length +
+        String(Array.isArray(config.p2p?.bootstrapNodes) ? config.p2p.bootstrapNodes.length : 'N/A')
+          .length)
+  )} ${chalk.cyan('║')}
+${chalk.cyan('╚════════════════════════════════════════════════════════════════════════════╝')}
+`;
+
+  console.log(banner);
 }
 
-function showNodeInfo(info) {
-  const Table = require("cli-table3");
-
+export function showNodeInfo(info) {
   const table = new Table({
-    head: [chalk.cyan("Metric"), chalk.cyan("Value")],
+    head: [chalk.cyan('Metrica'), chalk.cyan('Valore')],
     style: {
       head: [],
-      border: [],
-    },
+      border: []
+    }
   });
 
   table.push(
-    { "Network ID": chalk.green(info.network.myId) },
-    { "Active Peers": chalk.yellow(info.network.peersCount) },
+    { 'ID Rete': chalk.green(info.network?.myId || 'N/A') },
+    { 'Peer Attivi': chalk.yellow(info.network?.peersCount || 0) },
     {
-      "Messages Processed": chalk.magenta(
-        info.network.messagesSent + info.network.messagesReceived
-      ),
+      'Messaggi Processati': chalk.magenta(
+        (info.network?.messagesSent || 0) + (info.network?.messagesReceived || 0)
+      )
     },
-    { Uptime: chalk.blue(Math.floor(info.uptime / 60) + " minutes") }
+    { 'Altezza Blockchain': chalk.blue(info.blockchain?.height || 0) },
+    { Uptime: chalk.blue(Math.floor((info.uptime || 0) / 60) + ' minuti') },
+    { 'Transazioni in Pool': chalk.yellow(info.mempool?.size || 0) }
   );
 
   console.log(table.toString());
-  console.log("");
+  console.log('');
 }
-
-module.exports = {
-  showBanner,
-  showNodeInfo,
-};

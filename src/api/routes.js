@@ -1,20 +1,20 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
 
 function setupRoutes(networkManager) {
   // Endpoint per test broadcast
-  router.post("/broadcast", async (req, res) => {
+  router.post('/broadcast', async (req, res) => {
     try {
       const { message } = req.body;
       if (!message) {
-        return res.status(400).json({ error: "Messaggio richiesto" });
+        return res.status(400).json({ error: 'Messaggio richiesto' });
       }
 
       const success = await networkManager.broadcastMessage(message);
       if (success) {
         res.json({
-          status: "success",
-          message: "Messaggio inviato con successo",
+          status: 'success',
+          message: 'Messaggio inviato con successo'
         });
       } else {
         res.status(500).json({ error: "Errore nell'invio del messaggio" });
@@ -25,7 +25,7 @@ function setupRoutes(networkManager) {
   });
 
   // Endpoint per statistiche di rete
-  router.get("/network/stats", async (req, res) => {
+  router.get('/network/stats', async (req, res) => {
     try {
       const stats = networkManager.getStats();
       res.json(stats);
@@ -35,12 +35,12 @@ function setupRoutes(networkManager) {
   });
 
   // Endpoint per lista peer connessi
-  router.get("/network/peers", async (req, res) => {
+  router.get('/network/peers', async (req, res) => {
     try {
       const peers = networkManager.getConnectedPeers();
       res.json({
         total: peers.length,
-        peers: peers,
+        peers: peers
       });
     } catch (error) {
       res.status(500).json({ error: error.message });
