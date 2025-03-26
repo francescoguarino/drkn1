@@ -157,37 +157,42 @@ export class NetworkManager extends EventEmitter {
     const peerIdFile = path.join(peerIdDir, 'peer-id.json');
     const peerIdStringFile = path.join(peerIdDir, 'peer-id-string.txt');
 
+    // Controlla se è stata richiesta una reimpostazione
+    const resetRequested = process.env.RESET_PEER_ID === 'true';
+    if (resetRequested) {
+      this.logger.info('Richiesta reimpostazione del PeerId, eliminazione dei file esistenti...');
+      try {
+        if (fs.existsSync(peerIdFile)) fs.unlinkSync(peerIdFile);
+        if (fs.existsSync(peerIdStringFile)) fs.unlinkSync(peerIdStringFile);
+        this.logger.info('File PeerId eliminati con successo.');
+      } catch (e) {
+        this.logger.warn(`Errore nell'eliminazione dei file PeerId: ${e.message}`);
+      }
+    }
+
     try {
       // Crea la directory se non esiste
       if (!fs.existsSync(peerIdDir)) {
         fs.mkdirSync(peerIdDir, { recursive: true });
       }
 
-      // Metodo 1: Tenta di caricare la versione stringa del PeerId (più affidabile)
+      // Metodo 1: Tenta di utilizzare direttamente solo il formato stringa
       if (fs.existsSync(peerIdStringFile)) {
         try {
           const idString = fs.readFileSync(peerIdStringFile, 'utf8').trim();
           this.logger.info(`Caricato PeerId da stringa: ${idString}`);
 
-          // Carica il file JSON associato per ottenere i dettagli completi
-          if (fs.existsSync(peerIdFile)) {
-            try {
-              const peerIdJson = JSON.parse(fs.readFileSync(peerIdFile, 'utf8'));
-              this.peerId = await createFromJSON(peerIdJson);
-              this.logger.info(`PeerId caricato completamente: ${this.peerId.toString()}`);
-              this.myId = this.peerId.toString();
-              return;
-            } catch (e) {
-              this.logger.warn(
-                `Errore nel caricamento del PeerId da JSON dopo il caricamento della stringa: ${e.message}`
-              );
-              // Non generare un nuovo PeerId ma continuare con il caricamento da JSON
-            }
-          } else {
-            this.logger.warn(
-              'File JSON del PeerId mancante, ma stringa presente. Ricreazione del file JSON...'
-            );
-          }
+          // Crea un nuovo PeerId ma utilizza l'id stringa per configurare gli altri componenti
+          this.peerId = await createEd25519PeerId();
+
+          // Usa l'ID salvato come identificativo per il nodo
+          this.myId = idString;
+
+          // Salva il nuovo PeerId generato in formato JSON per avere un file valido
+          fs.writeFileSync(peerIdFile, JSON.stringify(this.peerId.toJSON()), 'utf8');
+
+          this.logger.info(`PeerId usato direttamente dalla stringa: ${this.myId}`);
+          return;
         } catch (e) {
           this.logger.warn(`Errore nel caricamento del PeerId da stringa: ${e.message}`);
           // Continua con altri metodi
@@ -209,6 +214,15 @@ export class NetworkManager extends EventEmitter {
           this.logger.error(
             `Errore nel caricamento del PeerId da JSON: ${loadError.message}. Creazione di un nuovo PeerId.`
           );
+          // Elimina il file JSON corrotto se c'è un errore di CID
+          if (loadError.message.includes('Invalid CID')) {
+            try {
+              fs.unlinkSync(peerIdFile);
+              this.logger.info('File JSON corrotto eliminato.');
+            } catch (e) {
+              this.logger.warn(`Errore nell'eliminazione del file JSON corrotto: ${e.message}`);
+            }
+          }
           // Continua con creazione
         }
       }
