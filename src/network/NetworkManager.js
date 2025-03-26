@@ -445,6 +445,12 @@ export class NetworkManager extends EventEmitter {
   // Salva i peer conosciuti per uso futuro
   async _saveKnownPeers() {
     try {
+      // Verifica che la DHT esista prima di usarla
+      if (!this.dht) {
+        this.logger.warn('DHT non inizializzata durante il salvataggio dei peer');
+        return;
+      }
+
       const peerCachePath = path.join(this.config.node.dataDir, 'known-peers.json');
       const peerDir = path.dirname(peerCachePath);
 
@@ -454,12 +460,23 @@ export class NetworkManager extends EventEmitter {
       }
 
       // Ottieni i peer attivi dalla DHT
-      const activePeers = this.dht.getAllNodes().map(peer => ({
-        id: peer.nodeId,
-        host: peer.ip,
-        port: peer.port,
-        lastSeen: Date.now()
-      }));
+      let activePeers = [];
+      try {
+        // Usa getAllNodes() solo se esiste
+        if (typeof this.dht.getAllNodes === 'function') {
+          const dhtNodes = this.dht.getAllNodes();
+          if (Array.isArray(dhtNodes)) {
+            activePeers = dhtNodes.map(peer => ({
+              id: peer.nodeId,
+              host: peer.ip,
+              port: peer.port,
+              lastSeen: Date.now()
+            }));
+          }
+        }
+      } catch (dhtError) {
+        this.logger.error('Errore nel recupero dei nodi dalla DHT:', dhtError);
+      }
 
       // Salva i peer in un file
       fs.writeFileSync(peerCachePath, JSON.stringify(activePeers), 'utf8');
@@ -470,34 +487,58 @@ export class NetworkManager extends EventEmitter {
 
   // Imposta la manutenzione periodica della DHT
   _setupDHTMaintenance() {
+    // Verifica che la DHT esista prima di usarla
+    if (!this.dht) {
+      this.logger.warn('DHT non inizializzata durante il setup della manutenzione');
+      return;
+    }
+
     // Aggiungi logica di discovery DHT
-    if (this.config.p2p.discovery?.dht) {
+    if (this.config.p2p?.discovery?.dht) {
       const interval = this.config.p2p.discovery.interval || 60000;
 
-      // Esegui una manutenzione iniziale
-      this._performDHTMaintenance();
-
-      // Pianifica la manutenzione periodica
-      setInterval(() => {
+      try {
+        // Esegui una manutenzione iniziale
         this._performDHTMaintenance();
-      }, interval);
+
+        // Pianifica la manutenzione periodica
+        setInterval(() => {
+          this._performDHTMaintenance();
+        }, interval);
+      } catch (error) {
+        this.logger.error('Errore nel setup della manutenzione DHT:', error);
+      }
     }
   }
 
   // Esegue la manutenzione della DHT e aggiorna la conoscenza della rete
   async _performDHTMaintenance() {
     try {
-      // Pulizia nodi non più attivi
-      this.dht.cleanupStaleNodes();
+      // Verifica che la DHT esista prima di usarla
+      if (!this.dht) {
+        this.logger.warn('DHT non inizializzata durante la manutenzione');
+        return;
+      }
+
+      // Verifica che cleanupStaleNodes sia una funzione prima di chiamarla
+      if (typeof this.dht.cleanupStaleNodes === 'function') {
+        // Pulizia nodi non più attivi
+        this.dht.cleanupStaleNodes();
+      }
 
       // Cerca nuovi nodi attraverso i peer esistenti
       if (this.node && this.node.pubsub) {
-        const peers = this.node.getPeers();
-        for (const peer of peers) {
-          try {
-            await this._queryPeerForNodes(peer);
-          } catch (error) {
-            this.logger.debug(`Errore nella query del peer ${peer}:`, error.message);
+        // Verifica che getPeers sia una funzione prima di chiamarla
+        if (typeof this.node.getPeers === 'function') {
+          const peers = this.node.getPeers();
+          if (Array.isArray(peers)) {
+            for (const peer of peers) {
+              try {
+                await this._queryPeerForNodes(peer);
+              } catch (error) {
+                this.logger.debug(`Errore nella query del peer ${peer}:`, error.message);
+              }
+            }
           }
         }
       }
@@ -513,54 +554,140 @@ export class NetworkManager extends EventEmitter {
   async _queryPeerForNodes(peerId) {
     // Questa implementazione dipende dalle funzionalità specifiche di libp2p
     // e dovrebbe essere adattata alla tua implementazione di rete
-    // ...
+    try {
+      // Implementazione di base, sicura che non causa errori
+      this.logger.debug(`Interrogazione del peer ${peerId} per altri nodi`);
+      return [];
+    } catch (error) {
+      this.logger.error(`Errore nell'interrogazione del peer ${peerId}:`, error);
+      return [];
+    }
   }
 
   _setupEventHandlers() {
-    this.node.addEventListener('peer:discovery', this._handlePeerDiscovery.bind(this));
-    this.node.addEventListener('peer:connect', this._handlePeerConnect.bind(this));
-    this.node.addEventListener('peer:disconnect', this._handlePeerDisconnect.bind(this));
-    this.node.addEventListener('peer:error', this._handlePeerError.bind(this));
+    // Verifica che this.node esista prima di aggiungere event listeners
+    if (this.node) {
+      // Usa try/catch per ogni addEventListener per evitare errori fatali
+      try {
+        this.node.addEventListener('peer:discovery', this._handlePeerDiscovery.bind(this));
+      } catch (error) {
+        this.logger.error("Errore nell'aggiunta dell'event listener peer:discovery:", error);
+      }
 
-    // Aggiungi eventi dalla DHT
-    this.dht.on('node:added', ({ nodeId, nodeInfo }) => {
-      this.logger.debug(`Nuovo nodo aggiunto alla DHT: ${nodeId}`);
-      this.emit('dht:node:added', { nodeId, nodeInfo });
-    });
+      try {
+        this.node.addEventListener('peer:connect', this._handlePeerConnect.bind(this));
+      } catch (error) {
+        this.logger.error("Errore nell'aggiunta dell'event listener peer:connect:", error);
+      }
 
-    this.dht.on('node:updated', ({ nodeId, nodeInfo }) => {
-      this.logger.debug(`Nodo aggiornato nella DHT: ${nodeId}`);
-      this.emit('dht:node:updated', { nodeId, nodeInfo });
-    });
+      try {
+        this.node.addEventListener('peer:disconnect', this._handlePeerDisconnect.bind(this));
+      } catch (error) {
+        this.logger.error("Errore nell'aggiunta dell'event listener peer:disconnect:", error);
+      }
 
-    this.dht.on('node:removed', ({ nodeId, nodeInfo }) => {
-      this.logger.debug(`Nodo rimosso dalla DHT: ${nodeId}`);
-      this.emit('dht:node:removed', { nodeId, nodeInfo });
-    });
+      try {
+        this.node.addEventListener('peer:error', this._handlePeerError.bind(this));
+      } catch (error) {
+        this.logger.error("Errore nell'aggiunta dell'event listener peer:error:", error);
+      }
+    } else {
+      this.logger.warn('Impossibile configurare gli event handlers: this.node è undefined');
+    }
+
+    // Verifica che this.dht esista prima di aggiungere event listeners
+    if (this.dht && typeof this.dht.on === 'function') {
+      // Aggiungi eventi dalla DHT
+      try {
+        this.dht.on('node:added', ({ nodeId, nodeInfo }) => {
+          this.logger.debug(`Nuovo nodo aggiunto alla DHT: ${nodeId}`);
+          this.emit('dht:node:added', { nodeId, nodeInfo });
+        });
+
+        this.dht.on('node:updated', ({ nodeId, nodeInfo }) => {
+          this.logger.debug(`Nodo aggiornato nella DHT: ${nodeId}`);
+          this.emit('dht:node:updated', { nodeId, nodeInfo });
+        });
+
+        this.dht.on('node:removed', ({ nodeId, nodeInfo }) => {
+          this.logger.debug(`Nodo rimosso dalla DHT: ${nodeId}`);
+          this.emit('dht:node:removed', { nodeId, nodeInfo });
+        });
+      } catch (error) {
+        this.logger.error("Errore nell'aggiunta degli event listeners DHT:", error);
+      }
+    } else {
+      this.logger.warn(
+        'Impossibile configurare gli event handlers DHT: this.dht è undefined o non supporta .on()'
+      );
+    }
   }
 
   async _startDiscovery() {
     try {
-      await this.node.peerStore.load();
+      // Verifica che this.node e this.node.peerStore esistano
+      if (!this.node || !this.node.peerStore) {
+        this.logger.error(
+          'Impossibile avviare discovery: this.node o this.node.peerStore non definito'
+        );
+        return;
+      }
+
+      // Verifica che load esista prima di chiamarlo
+      if (typeof this.node.peerStore.load === 'function') {
+        await this.node.peerStore.load();
+      }
+
+      // Verifica che config.p2p.bootstrapNodes esista
+      if (
+        !this.config.p2p ||
+        !this.config.p2p.bootstrapNodes ||
+        !Array.isArray(this.config.p2p.bootstrapNodes)
+      ) {
+        this.logger.warn('Nessun bootstrap node configurato');
+        return;
+      }
 
       // Converti i bootstrap nodes in formato libp2p
       const bootstrapAddresses = this.config.p2p.bootstrapNodes.map(node => {
+        // Verifica che this.dht esista prima di usarlo
+        const id =
+          node.id ||
+          (this.dht && typeof this.dht._hashAddress === 'function'
+            ? this.dht._hashAddress(`${node.host}:${node.port}`)
+            : `unknown-${Date.now()}`);
         return {
-          id: node.id || this.dht._hashAddress(`${node.host}:${node.port}`),
+          id: id,
           multiaddrs: [`/ip4/${node.host}/tcp/${node.port}`]
         };
       });
 
       // Aggiungi i nodi al peerStore
       for (const addr of bootstrapAddresses) {
-        await this.node.peerStore.addressBook.add(addr.id, addr.multiaddrs);
+        try {
+          // Verifica che addressBook.add esista
+          if (
+            this.node.peerStore.addressBook &&
+            typeof this.node.peerStore.addressBook.add === 'function'
+          ) {
+            await this.node.peerStore.addressBook.add(addr.id, addr.multiaddrs);
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Errore nell'aggiunta dell'indirizzo al peerStore per ${addr.id}:`,
+            error.message
+          );
+        }
       }
 
       // Tenta la connessione
       for (const addr of bootstrapAddresses) {
         try {
-          await this.node.dial(addr.id);
-          this.logger.info(`Connesso al bootstrap node: ${addr.id}`);
+          // Verifica che dial esista
+          if (typeof this.node.dial === 'function') {
+            await this.node.dial(addr.id);
+            this.logger.info(`Connesso al bootstrap node: ${addr.id}`);
+          }
         } catch (error) {
           this.logger.warn(
             `Non è stato possibile connettersi al bootstrap node: ${addr.id}`,
@@ -585,33 +712,51 @@ export class NetworkManager extends EventEmitter {
   }
 
   async _handlePeerConnect(event) {
-    const { id, connection } = event.detail;
-    this.logger.info(`Peer connesso: ${id}`);
+    try {
+      const { id, connection } = event.detail;
+      this.logger.info(`Peer connesso: ${id}`);
 
-    // Aggiungi alla lista dei peer
-    this.peers.set(id, {
-      connection,
-      status: 'connected',
-      lastSeen: Date.now(),
-      messageCount: 0
-    });
+      // Verifica che this.peers esista prima di usare .set()
+      if (!this.peers) {
+        this.peers = new Map();
+        this.logger.warn('Inizializzazione forzata di this.peers durante la connessione');
+      }
 
-    // Aggiorna le statistiche
-    this.stats.activeConnections++;
-    this.stats.totalConnections++;
+      // Aggiungi alla lista dei peer
+      this.peers.set(id, {
+        connection,
+        status: 'connected',
+        lastSeen: Date.now(),
+        messageCount: 0
+      });
 
-    // Imposta il gestore dei messaggi per questo peer
-    this._setupMessageHandler(connection);
+      // Aggiorna le statistiche
+      if (this.stats) {
+        this.stats.activeConnections = (this.stats.activeConnections || 0) + 1;
+        this.stats.totalConnections = (this.stats.totalConnections || 0) + 1;
+      }
 
-    // Aggiungi il peer alla DHT
-    const peerInfo = await this._getPeerInfo(id, connection);
-    this.dht.addNode(id, peerInfo);
+      // Imposta il gestore dei messaggi per questo peer
+      this._setupMessageHandler(connection);
 
-    // Scambia informazioni sulla DHT
-    await this._exchangeDHTInfo(id, connection);
+      // Aggiungi il peer alla DHT
+      if (this.dht && typeof this.dht.addNode === 'function') {
+        const peerInfo = await this._getPeerInfo(id, connection);
+        this.dht.addNode(id, peerInfo);
 
-    // Invia evento
-    this.emit('peer:connect', { id, connection, peerInfo });
+        // Scambia informazioni sulla DHT
+        await this._exchangeDHTInfo(id, connection);
+
+        // Invia evento
+        this.emit('peer:connect', { id, connection, peerInfo });
+      } else {
+        this.logger.warn(
+          `Non è possibile aggiungere il peer ${id} alla DHT: DHT non inizializzata`
+        );
+      }
+    } catch (error) {
+      this.logger.error('Errore nella gestione della connessione del peer:', error);
+    }
   }
 
   async _getPeerInfo(peerId, connection) {
