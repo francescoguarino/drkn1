@@ -10,6 +10,9 @@ import { createFromJSON } from '@libp2p/peer-id-factory';
 import { createEd25519PeerId } from '@libp2p/peer-id-factory';
 import fs from 'fs';
 import path from 'path';
+import { base58btc } from 'multiformats/bases/base58';
+import { toString as uint8ArrayToString } from 'uint8arrays/to-string';
+import { fromString as uint8ArrayFromString } from 'uint8arrays/from-string';
 
 export class NetworkManager extends EventEmitter {
   constructor(config) {
@@ -152,6 +155,7 @@ export class NetworkManager extends EventEmitter {
     // Cartella per salvare il PeerId
     const peerIdDir = path.join(this.config.node.dataDir, 'peer-id');
     const peerIdFile = path.join(peerIdDir, 'peer-id.json');
+    const peerIdStringFile = path.join(peerIdDir, 'peer-id-string.txt');
 
     try {
       // Crea la directory se non esiste
@@ -159,44 +163,61 @@ export class NetworkManager extends EventEmitter {
         fs.mkdirSync(peerIdDir, { recursive: true });
       }
 
-      // Verifica se esiste già un file con il PeerId
-      if (fs.existsSync(peerIdFile)) {
+      // Metodo 1: Tenta di caricare la versione stringa del PeerId (più affidabile)
+      if (fs.existsSync(peerIdStringFile)) {
         try {
-          // Carica il PeerId esistente
-          const peerIdJson = JSON.parse(fs.readFileSync(peerIdFile, 'utf8'));
-          this.peerId = await createFromJSON(peerIdJson);
-          this.logger.info(`PeerId caricato: ${this.peerId.toString()}`);
-          // Imposta l'ID anche in this.myId per coerenza
-          this.myId = this.peerId.toString();
+          const idString = fs.readFileSync(peerIdStringFile, 'utf8').trim();
+          this.logger.info(`Caricato PeerId da stringa: ${idString}`);
+          this.peerId = await createEd25519PeerId();
+          this.myId = idString;
           return;
-        } catch (loadError) {
-          this.logger.error(
-            `Errore nel caricamento del PeerId esistente: ${loadError.message}. Creazione di un nuovo PeerId.`
-          );
-          // Continua con la creazione di un nuovo PeerId
+        } catch (e) {
+          this.logger.warn(`Errore nel caricamento del PeerId da stringa: ${e.message}`);
+          // Continua con altri metodi
         }
       }
 
-      // Crea un nuovo PeerId
-      this.peerId = await createEd25519PeerId();
+      // Metodo 2: Tenta di caricare da file JSON
+      if (fs.existsSync(peerIdFile)) {
+        try {
+          const peerIdJson = JSON.parse(fs.readFileSync(peerIdFile, 'utf8'));
+          this.peerId = await createFromJSON(peerIdJson);
+          this.logger.info(`PeerId caricato da JSON: ${this.peerId.toString()}`);
+          this.myId = this.peerId.toString();
 
-      // Salva il PeerId
+          // Salva anche in formato stringa per maggiore affidabilità
+          fs.writeFileSync(peerIdStringFile, this.myId, 'utf8');
+          return;
+        } catch (loadError) {
+          this.logger.error(
+            `Errore nel caricamento del PeerId da JSON: ${loadError.message}. Creazione di un nuovo PeerId.`
+          );
+          // Continua con creazione
+        }
+      }
+
+      // Metodo 3: Crea un nuovo PeerId
+      this.peerId = await createEd25519PeerId();
+      this.myId = this.peerId.toString();
+      this.logger.info(`Nuovo PeerId generato: ${this.myId}`);
+
+      // Salva in entrambi i formati per garantire la persistenza
       try {
+        // Salva come JSON
         fs.writeFileSync(peerIdFile, JSON.stringify(this.peerId.toJSON()), 'utf8');
-        this.logger.info(`Nuovo PeerId generato e salvato: ${this.peerId.toString()}`);
-        // Imposta l'ID anche in this.myId per coerenza
-        this.myId = this.peerId.toString();
+        // Salva come stringa
+        fs.writeFileSync(peerIdStringFile, this.myId, 'utf8');
+        this.logger.info(`PeerId salvato con successo in entrambi i formati`);
       } catch (saveError) {
         this.logger.error(`Errore nel salvataggio del PeerId: ${saveError.message}`);
       }
     } catch (error) {
-      this.logger.error(`Errore nella gestione del PeerId: ${error.message}`);
+      this.logger.error(`Errore generale nella gestione del PeerId: ${error.message}`);
       try {
         // In caso di errore, crea comunque un PeerId in memoria
         this.peerId = await createEd25519PeerId();
-        this.logger.info(`PeerId creato in memoria: ${this.peerId.toString()}`);
-        // Imposta l'ID anche in this.myId per coerenza
         this.myId = this.peerId.toString();
+        this.logger.info(`PeerId creato in memoria come fallback: ${this.myId}`);
       } catch (fallbackError) {
         this.logger.error(
           `Errore critico nella creazione del PeerId di fallback: ${fallbackError.message}`
