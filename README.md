@@ -1,134 +1,149 @@
-# 🔗 DRAKON NODE
+# Drakon Network
 
-Un nodo blockchain decentralizzato e scalabile per la rete Drakon.
+Drakon è una rete blockchain peer-to-peer progettata per essere scalabile, sicura e facile da usare. Questo repository contiene il codice sorgente per un nodo Drakon, che può essere eseguito su qualsiasi sistema che supporti Node.js.
 
-![Drakon Node Banner](docs/banner.png)
+## Caratteristiche principali
 
-## 🚀 Caratteristiche Principali
+- Struttura blockchain completa con supporto per transazioni
+- Rete peer-to-peer basata su libp2p
+- Scoperta automatica dei nodi attraverso bootstrap nodes e DHT
+- API REST per interagire con il nodo
+- Gestione di wallet integrata
+- Sincronizzazione della blockchain tra nodi
 
-- ⚡ Network P2P completamente decentralizzato
-- 🔒 Crittografia end-to-end
-- 📊 Sistema di consenso distribuito
-- 🌐 Discovery automatica dei nodi
-- 📈 Monitoraggio in tempo reale
-- 🛡️ Sicurezza integrata
+## Requisiti
 
-## 📋 Prerequisiti
+- Node.js v14 o superiore
+- NPM v6 o superiore
 
-- Node.js >= 18.0.0
-- NPM >= 8.0.0
-- Porta TCP aperta per P2P (default: 6001)
-- Porta TCP aperta per API (default: 3000)
-
-## 🛠️ Installazione
-
-1. Clona il repository:
+## Installazione
 
 ```bash
-git clone https://github.com/tuouser/drakon-node.git
-cd drakon-node
-```
+# Clona il repository
+git clone https://github.com/tuoUsername/drakon.git
+cd drakon
 
-2. Installa le dipendenze:
-
-```bash
+# Installa le dipendenze
 npm install
 ```
 
-3. Crea il file di configurazione:
+## Avvio di un nodo
+
+Per avviare un nodo con la configurazione predefinita:
 
 ```bash
-cp .env.example .env
+node src/index.js
 ```
 
-4. Modifica il file `.env` secondo le tue necessità:
+Il nodo creerà automaticamente una directory `.drakon-node` nella home dell'utente, dove verranno salvati tutti i dati del nodo, inclusi blockchain, wallet e configurazioni.
 
-```env
-NODE_ENV=production
-API_PORT=3000
-P2P_PORT=6001
-MAX_PEERS=50
-CHANNEL=drakon-mainnet
-```
+### Opzioni di avvio
 
-## 🚀 Avvio
+Il nodo supporta diverse opzioni di configurazione che possono essere specificate tramite variabili d'ambiente:
 
-### Ambiente di Sviluppo
+- `API_PORT`: Porta per l'API REST (default: 7001)
+- `P2P_PORT`: Porta per la comunicazione P2P (default: 6001)
+- `DATA_DIR`: Directory per i dati (default: ~/.drakon-node)
+- `MINING_ENABLED`: Abilita il mining (default: false)
+- `BOOTSTRAP_NODES`: Lista di nodi bootstrap in formato JSON
+- `IS_BOOTSTRAP`: Imposta il nodo come bootstrap node (default: false)
+
+Esempio:
 
 ```bash
-npm run start:dev
+API_PORT=8080 P2P_PORT=9000 MINING_ENABLED=true node src/index.js
 ```
 
-### Ambiente di Produzione
+## Connessione tra nodi su diversi server
 
-```bash
-npm run start:prod
+Per far comunicare i nodi tra loro su macchine diverse, è necessario configurare i bootstrap nodes. Drakon utilizza un sistema di discovery distribuito che permette ai nodi di trovarsi automaticamente una volta connessi alla rete.
+
+### Procedura per connettere due nodi
+
+1. **Avvio del primo nodo**
+
+   ```bash
+   node src/index.js
+   ```
+
+   Dai log, prendi nota dell'indirizzo IP e del PeerId (una stringa come `12D3KooWXXX...`)
+
+2. **Avvio del secondo nodo**
+
+   ```bash
+   BOOTSTRAP_NODES='[{"host":"IP-DEL-PRIMO-NODO","port":6001,"id":"PEER-ID-DEL-PRIMO-NODO"}]' node src/index.js
+   ```
+
+   Sostituisci `IP-DEL-PRIMO-NODO` e `PEER-ID-DEL-PRIMO-NODO` con i valori ottenuti dal primo nodo.
+
+3. **Aggiornamento del primo nodo (opzionale, ma consigliato)**
+   Riavvia il primo nodo con la conoscenza del secondo:
+   ```bash
+   BOOTSTRAP_NODES='[{"host":"IP-DEL-SECONDO-NODO","port":6001,"id":"PEER-ID-DEL-SECONDO-NODO"}]' node src/index.js
+   ```
+
+### Nodi bootstrap predefiniti
+
+La rete Drakon include due nodi bootstrap predefiniti che facilitano l'ingresso nella rete:
+
+```
+bootstrap1.drakon-network.io:6001
+bootstrap2.drakon-network.io:6001
 ```
 
-### Monitoraggio
+Questi nodi sono configurati nella rete per impostazione predefinita, quindi i nuovi nodi dovrebbero essere in grado di connettersi automaticamente alla rete senza configurazione aggiuntiva.
 
-```bash
-npm run monitor
-```
+## API REST
 
-## 📊 Dashboard
+Una volta avviato, il nodo espone un'API REST sulla porta specificata (default: 7001).
 
-La dashboard è accessibile all'indirizzo `http://localhost:3000/dashboard` dopo l'avvio del nodo.
+Endpoint principali:
 
-## 🔧 Configurazione
+- `GET /status`: Restituisce lo stato del nodo
+- `GET /blocks`: Elenco dei blocchi nella blockchain
+- `GET /peers`: Elenco dei peer connessi
+- `POST /transactions`: Crea una nuova transazione
 
-### Configurazione di Base
+## Persistenza dei dati
 
-- `NODE_ENV`: Ambiente di esecuzione (development/production)
-- `API_PORT`: Porta per l'API REST
-- `P2P_PORT`: Porta per la comunicazione P2P
-- `MAX_PEERS`: Numero massimo di peer connessi
-- `CHANNEL`: Canale della rete (mainnet/testnet)
+Tutti i dati vengono salvati nella directory `.drakon-node` nella home dell'utente, che contiene:
 
-### Configurazione Avanzata
+- `data/`: Database blockchain
+- `wallet/`: File del wallet
+- `peer-id/`: Identificativo permanente del nodo
+- `known-peers.json`: Cache dei peer conosciuti
 
-Modifica il file `src/config.js` per configurazioni più avanzate come:
+## Risoluzione dei problemi
 
-- Timeout delle connessioni
-- Intervalli di sincronizzazione
-- Parametri di sicurezza
-- Bootstrap nodes
+### Il nodo non si connette ad altri nodi
 
-## 🌐 Networking
+1. Verifica che le porte necessarie (6001 per P2P, 7001 per API) siano aperte nel firewall
+2. Controlla che l'indirizzo IP fornito come bootstrap node sia raggiungibile
+3. Verifica che il formato del PeerId sia corretto nel parametro BOOTSTRAP_NODES
 
-Il nodo utilizza una rete P2P decentralizzata basata su DHT (Distributed Hash Table) per:
+### Errore "Transport could not listen on any available address"
 
-- Discovery automatica dei peer
-- Comunicazione tra nodi
-- Sincronizzazione della blockchain
-- Propagazione delle transazioni
+Questo errore può verificarsi se:
 
-## 🔒 Sicurezza
+- La porta è già in uso: prova a cambiare porta con P2P_PORT
+- Non ci sono permessi sufficienti: verifica i permessi dell'utente
 
-- Crittografia end-to-end per tutte le comunicazioni
-- Validazione delle transazioni
-- Rate limiting integrato
-- Protezione contro attacchi DDoS
-- Firewall automatico
+## Sviluppo
 
-## 📝 API Documentation
+Per contribuire al progetto:
 
-La documentazione dell'API è disponibile all'indirizzo `http://localhost:3000/docs` dopo l'avvio del nodo.
+1. Forka il repository
+2. Crea un branch per la tua feature (`git checkout -b feature/amazing-feature`)
+3. Committa i tuoi cambiamenti (`git commit -m 'Aggiungi una feature fantastica'`)
+4. Pusha al branch (`git push origin feature/amazing-feature`)
+5. Apri una Pull Request
 
-## 🤝 Contributing
+## Contatti
 
-Le contribuzioni sono benvenute! Per favore leggi [CONTRIBUTING.md](CONTRIBUTING.md) per i dettagli su come contribuire al progetto.
+Per assistenza o per entrare in contatto con gli sviluppatori:
 
-## 📄 License
+- Francesco Guarino - guarinofrancesco42@gmail.com
+
+## Licenza
 
 Questo progetto è sotto licenza MIT - vedi il file [LICENSE](LICENSE) per i dettagli.
-
-## 📞 Support
-
-- 📧 Email: support@drakon.network
-- 💬 Discord: [Drakon Community](https://discord.gg/drakon)
-- 📱 Telegram: [@DrakonNetwork](https://t.me/DrakonNetwork)
-
-## ⚠️ Disclaimer
-
-Questo software è in fase beta. Usalo a tuo rischio e pericolo.

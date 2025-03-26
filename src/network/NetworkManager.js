@@ -1,143 +1,233 @@
-const { EventEmitter } = require("events");
-const Swarm = require("discovery-swarm");
-const defaults = require("dat-swarm-defaults");
-const getPort = require("get-port");
-const crypto = require("crypto");
-const logger = require("../utils/logger");
-const Discovery = require("./Discovery");
-const RoutingTable = require("./RoutingTable");
+import { createLibp2p } from 'libp2p';
+import { tcp } from '@libp2p/tcp';
+import { noise } from '@chainsafe/libp2p-noise';
+import { mplex } from '@libp2p/mplex';
+import { bootstrap } from '@libp2p/bootstrap';
+import { Logger } from '../utils/logger.js';
+import { EventEmitter } from 'events';
+import { DHTManager } from './DHT.js';
+import { createFromJSON } from '@libp2p/peer-id-factory';
+import { createEd25519PeerId } from '@libp2p/peer-id-factory';
+import fs from 'fs';
+import path from 'path';
 
-class NetworkManager extends EventEmitter {
-  constructor() {
+export class NetworkManager extends EventEmitter {
+  constructor(config) {
     super();
+    this.config = config;
+    this.logger = new Logger('NetworkManager');
+    this.node = null;
     this.peers = new Map();
-    this.routingTable = new RoutingTable(50); // Max peers
-    this.discovery = new Discovery();
+    this.routingTable = new Map();
+    this.discovery = null;
     this.swarm = null;
-    this.myId = crypto.randomBytes(32);
-    this.started = false;
+    this.myId = null;
+    this.peerId = null;
+    this.dht = new DHTManager(config);
     this.stats = {
       totalConnections: 0,
       activeConnections: 0,
       messagesSent: 0,
       messagesReceived: 0,
-      lastMessageTime: null,
-      networkType: "unknown",
+      networkType: 'private',
       myAddress: null,
+      peersCount: 0,
+      routingTableSize: 0
     };
   }
 
   async start() {
-    if (this.started) {
-      logger.warn("Network manager already started");
-      return;
+    try {
+      this.logger.info('Avvio del NetworkManager...');
+
+      // Inizializza la DHT
+      await this.dht.initialize();
+
+      // Ottieni l'ID del nodo dalla DHT
+      this.myId = this.dht.nodeId;
+
+      // Crea o carica un PeerId persistente
+      await this._loadOrCreatePeerId();
+
+      // Ottieni informazioni di rete
+      const networkInfo = await this._getNetworkInfo();
+      this.stats.myAddress = networkInfo.address;
+      this.stats.networkType = networkInfo.type;
+
+      // Trova i bootstrap nodes
+      const bootstrapNodes = await this._findBootstrapNodes();
+
+      // Determina la porta da utilizzare
+      let port = this.config.p2p.port;
+
+      // Configura libp2p
+      try {
+        this.node = await createLibp2p({
+          addresses: {
+            // Ascolta su tutti gli indirizzi invece di un IP specifico
+            listen: [`/ip4/0.0.0.0/tcp/${port}`]
+          },
+          transports: [tcp()],
+          streamMuxers: [mplex()],
+          connectionEncryption: [noise()],
+          peerDiscovery: [
+            bootstrap({
+              list: bootstrapNodes,
+              interval: 1000
+            })
+          ],
+          identify: {
+            host: {
+              agentVersion: `drakon/${this.config.version || '1.0.0'}`,
+              protocolVersion: '1.0.0'
+            }
+          },
+          peerId: this.peerId
+        });
+      } catch (e) {
+        // Se non riesce a connettersi alla porta originale, prova con una porta alternativa
+        if (e.message.includes('could not listen') || e.code === 'EADDRINUSE') {
+          this.logger.warn(`Porta ${port} occupata, tentativo con porta alternativa...`);
+          // Prova con una porta casuale tra 10000 e 65000
+          port = Math.floor(Math.random() * 55000) + 10000;
+
+          this.node = await createLibp2p({
+            addresses: {
+              listen: [`/ip4/0.0.0.0/tcp/${port}`]
+            },
+            transports: [tcp()],
+            streamMuxers: [mplex()],
+            connectionEncryption: [noise()],
+            peerDiscovery: [
+              bootstrap({
+                list: bootstrapNodes,
+                interval: 1000
+              })
+            ],
+            identify: {
+              host: {
+                agentVersion: `drakon/${this.config.version || '1.0.0'}`,
+                protocolVersion: '1.0.0'
+              }
+            },
+            peerId: this.peerId
+          });
+
+          // Aggiorna la porta nella configurazione
+          this.config.p2p.port = port;
+        } else {
+          // Se l'errore è di altro tipo, rilancia l'eccezione
+          throw e;
+        }
+      }
+
+      // Inizia ad ascoltare
+      await this.node.start();
+      this.logger.info(`Nodo P2P in ascolto sulla porta ${port}`);
+      this.logger.info(`ID del nodo: ${this.peerId.toString()}`);
+      this.logger.info(`Indirizzo IP: ${networkInfo.address}`);
+
+      // Imposta gli event handlers
+      this._setupEventHandlers();
+
+      // Avvia il discovery
+      await this._startDiscovery();
+
+      // Avvia la manutenzione periodica della DHT
+      this._setupDHTMaintenance();
+
+      this.logger.info('NetworkManager avviato con successo');
+    } catch (error) {
+      this.logger.error("Errore durante l'avvio del NetworkManager:", error);
+      throw error;
     }
+  }
+
+  async _loadOrCreatePeerId() {
+    // Cartella per salvare il PeerId
+    const peerIdDir = path.join(this.config.node.dataDir, 'peer-id');
+    const peerIdFile = path.join(peerIdDir, 'peer-id.json');
 
     try {
-      // Ottieni informazioni sulla rete
-      const networkInfo = await this.discovery.getNetworkInfo();
-      this.stats.networkType = networkInfo.isPublic ? "public" : "private";
-      this.stats.myAddress = networkInfo.addresses[0];
+      // Verifica se esiste già un file con il PeerId
+      if (fs.existsSync(peerIdFile)) {
+        // Carica il PeerId esistente
+        const peerIdJson = JSON.parse(fs.readFileSync(peerIdFile, 'utf8'));
+        this.peerId = await createFromJSON(peerIdJson);
+        this.logger.info(`PeerId caricato: ${this.peerId.toString()}`);
+      } else {
+        // Crea un nuovo PeerId
+        this.peerId = await createEd25519PeerId();
 
-      // Trova i migliori nodi bootstrap
-      const bootstrapNodes = await this.discovery.findBestBootstrapNodes();
-      logger.info(`Found ${bootstrapNodes.length} bootstrap nodes`);
+        // Crea la directory se non esiste
+        if (!fs.existsSync(peerIdDir)) {
+          fs.mkdirSync(peerIdDir, { recursive: true });
+        }
 
-      // Configura e avvia lo swarm
-      const port = await getPort({ port: 6001 });
-
-      const swarmOpts = defaults({
-        id: this.myId,
-        tcp: true,
-        utp: true,
-        dht: {
-          bootstrap: bootstrapNodes.map((node) => `${node.host}:${node.port}`),
-        },
-        hash: false,
-      });
-
-      this.swarm = new Swarm(swarmOpts);
-
-      // Configura gli eventi dello swarm
-      this.swarm.on("connection", (conn, info) =>
-        this._handleConnection(conn, info)
-      );
-      this.swarm.on("disconnection", (conn, info) =>
-        this._handlePeerDisconnect(info.id.toString("hex"))
-      );
-      this.swarm.on("error", (err) => this._handleError(err));
-
-      // Avvia lo swarm
-      this.swarm.listen(port);
-      logger.info(`P2P network listening on port ${port}`);
-
-      // Unisciti al canale della rete
-      this.swarm.join(Buffer.from("drakon-network"));
-      logger.info(`Joined P2P channel: drakon-network`);
-
-      // Avvia il ping periodico e la pulizia
-      this._startPingInterval();
-      this._startCleanupInterval();
-
-      this.started = true;
-      this.emit("started", {
-        networkType: this.stats.networkType,
-        address: this.stats.myAddress,
-        port: port,
-      });
+        // Salva il PeerId
+        fs.writeFileSync(peerIdFile, JSON.stringify(this.peerId.toJSON()), 'utf8');
+        this.logger.info(`Nuovo PeerId generato e salvato: ${this.peerId.toString()}`);
+      }
     } catch (error) {
-      logger.error("Failed to start network manager:", error);
-      throw error;
+      this.logger.error('Errore nella gestione del PeerId:', error);
+      // In caso di errore, crea comunque un PeerId in memoria
+      this.peerId = await createEd25519PeerId();
+      this.logger.info(`PeerId creato in memoria: ${this.peerId.toString()}`);
     }
   }
 
   async stop() {
-    if (!this.started) {
-      return;
-    }
-
     try {
+      this.logger.info('Arresto del NetworkManager...');
+
       // Chiudi tutte le connessioni
-      for (const [peerId, peer] of this.peers.entries()) {
-        this._disconnectPeer(peerId, peer);
+      for (const [peerId, connection] of this.peers.entries()) {
+        await this._disconnectPeer(peerId);
       }
 
-      // Ferma lo swarm
-      if (this.swarm) {
-        this.swarm.close();
-        this.swarm = null;
+      // Ferma il discovery
+      if (this.discovery) {
+        await this.discovery.stop();
       }
 
-      this.started = false;
-      this.emit("stopped");
-      logger.info("Network manager stopped");
+      // Ferma il nodo
+      if (this.node) {
+        await this.node.stop();
+      }
+
+      this.logger.info('NetworkManager arrestato con successo');
     } catch (error) {
-      logger.error("Error stopping network manager:", error);
+      this.logger.error("Errore durante l'arresto del NetworkManager:", error);
       throw error;
     }
   }
 
-  broadcast(type, data) {
+  async broadcast(message) {
     try {
-      const message = JSON.stringify({ type, data });
-      let sentCount = 0;
+      const messageData = {
+        type: 'broadcast',
+        data: message,
+        timestamp: Date.now(),
+        sender: this.myId
+      };
 
-      for (const [peerId, peer] of this.peers.entries()) {
-        try {
-          peer.conn.write(message);
-          this.stats.messagesSent++;
-          sentCount++;
-          logger.debug(`Message sent to peer ${peerId}`);
-        } catch (error) {
-          logger.error(`Error sending to peer ${peerId}: ${error.message}`);
+      const serializedMessage = JSON.stringify(messageData);
+
+      // Invia il messaggio a tutti i peer connessi
+      for (const [peerId, connection] of this.peers.entries()) {
+        if (connection.status === 'connected') {
+          try {
+            const stream = await connection.newStream('/drakon/1.0.0');
+            await stream.sink([Buffer.from(serializedMessage)]);
+            this.stats.messagesSent++;
+          } catch (error) {
+            this.logger.error(`Errore nell'invio del messaggio al peer ${peerId}:`, error);
+          }
         }
       }
-
-      logger.debug(`Broadcast ${type} message to ${sentCount} peers`);
-      return sentCount > 0;
     } catch (error) {
-      logger.error(`Error in broadcast: ${error.message}`);
-      return false;
+      this.logger.error('Errore durante il broadcast:', error);
+      throw error;
     }
   }
 
@@ -145,199 +235,656 @@ class NetworkManager extends EventEmitter {
     return {
       ...this.stats,
       peersCount: this.peers.size,
-      routingTableSize: this.routingTable.size(),
-      myId: this.myId.toString("hex"),
-      channel: "drakon-network",
+      routingTableSize: this.routingTable.size,
+      dhtSize: this.dht.routingTable.size
     };
-  }
-
-  async broadcastMessage(message) {
-    try {
-      const messageData = {
-        content: message,
-        timestamp: Date.now(),
-        sender: this.myId.toString("hex"),
-      };
-
-      const success = this.broadcast("broadcast", messageData);
-
-      if (success) {
-        logger.info(`Messaggio broadcast inviato: ${message}`);
-        return true;
-      } else {
-        logger.warn("Nessun peer disponibile per l'invio del messaggio");
-        return false;
-      }
-    } catch (error) {
-      logger.error(
-        `Errore nell'invio del messaggio broadcast: ${error.message}`
-      );
-      return false;
-    }
   }
 
   getConnectedPeers() {
     const peersList = [];
-
-    for (const [peerId, peer] of this.peers.entries()) {
+    for (const [peerId, connection] of this.peers.entries()) {
       peersList.push({
         id: peerId,
-        address: peer.address,
-        port: peer.port,
-        lastSeen: new Date(peer.lastSeen).toISOString(),
-        messageCount: peer.messageCount,
-        isActive: Date.now() - peer.lastSeen < 300000, // 5 minuti
+        address: connection.remoteAddress,
+        port: connection.remotePort,
+        lastSeen: connection.lastSeen,
+        messageCount: connection.messageCount,
+        isActive: Date.now() - connection.lastSeen < 30000, // 30 secondi di timeout
+        dhtInfo: this.dht.getNode(peerId)
       });
     }
-
     return peersList;
   }
 
-  // Metodi privati
-  _handleConnection(conn, info) {
-    const peerId = info.id.toString("hex");
+  getPeers() {
+    return this.getConnectedPeers();
+  }
 
-    // Verifica se abbiamo già raggiunto il limite massimo di peer
-    if (this.peers.size >= this.routingTable.maxPeers) {
-      logger.warn(
-        `Rejecting connection from ${peerId}: max peers limit reached`
-      );
-      conn.destroy();
-      return;
+  // Restituisce i nodi dalla DHT
+  getDHTNodes() {
+    return this.dht.getAllNodes();
+  }
+
+  // Ricerca un nodo specifico nella rete
+  async findNode(nodeId) {
+    // Prima controlla nella DHT locale
+    const localNode = this.dht.getNode(nodeId);
+    if (localNode) {
+      return localNode;
     }
 
-    logger.info(`New peer connection: ${peerId} (${info.host}:${info.port})`);
+    // Altrimenti chiedi ai peer più vicini
+    const closestNodes = this.dht.getClosestNodes(nodeId, 3);
 
-    const peer = {
-      conn,
-      info,
-      connectedAt: Date.now(),
-      lastSeen: Date.now(),
-      messageCount: 0,
-    };
+    for (const node of closestNodes) {
+      try {
+        if (this.peers.has(node.nodeId)) {
+          const connection = this.peers.get(node.nodeId);
+          const stream = await connection.newStream('/drakon/1.0.0');
 
-    this.peers.set(peerId, peer);
-    this.discovery.addKnownPeer(peerId, {
-      host: info.host,
-      port: info.port,
-    });
+          const request = {
+            type: 'find_node',
+            targetId: nodeId,
+            sender: this.myId,
+            timestamp: Date.now()
+          };
 
-    this.routingTable.addNode(peerId, {
-      address: info.host,
-      port: info.port,
-    });
+          await stream.sink([Buffer.from(JSON.stringify(request))]);
+          const response = await this._readStream(stream);
 
-    this.stats.totalConnections++;
-    this.stats.activeConnections = this.peers.size;
+          if (response && response.nodes) {
+            // Aggiorna la DHT con i nodi ricevuti
+            for (const node of response.nodes) {
+              this.dht.addNode(node.nodeId, node);
+            }
 
-    // Configura gli handler per i messaggi
-    conn.on("data", (data) => this._handleMessage(data, peerId));
-    conn.on("error", (error) => this._handlePeerError(error, peerId));
-    conn.on("close", () => this._handlePeerDisconnect(peerId));
-
-    // Invia le informazioni di rete al nuovo peer
-    this._sendNetworkInfo(conn);
-
-    this.emit("peer:connected", { peerId, info });
-  }
-
-  _sendNetworkInfo(conn) {
-    const knownPeers = this.discovery.getKnownPeers();
-    const networkInfo = {
-      type: "network-info",
-      data: {
-        peers: knownPeers,
-        networkType: this.stats.networkType,
-        address: this.stats.myAddress,
-      },
-    };
-    conn.write(JSON.stringify(networkInfo));
-  }
-
-  _handleMessage(message, peerId) {
-    try {
-      const parsedMessage = JSON.parse(message);
-
-      switch (parsedMessage.type) {
-        case "broadcast":
-          logger.info(
-            `Messaggio ricevuto da ${parsedMessage.data.sender}: ${parsedMessage.data.content}`
-          );
-          this.emit("message", {
-            type: "broadcast",
-            sender: parsedMessage.data.sender,
-            content: parsedMessage.data.content,
-            timestamp: parsedMessage.data.timestamp,
-          });
-          break;
-
-        case "ping":
-          // ... existing code ...
-          break;
-
-        case "network-info":
-          // ... existing code ...
-          break;
+            // Se abbiamo trovato il nodo, restituiscilo
+            const foundNode = response.nodes.find(n => n.nodeId === nodeId);
+            if (foundNode) {
+              return foundNode;
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Errore nella ricerca del nodo ${nodeId} tramite ${node.nodeId}:`, error);
       }
-    } catch (error) {
-      logger.error(`Errore nella gestione del messaggio: ${error.message}`);
     }
+
+    return null;
   }
 
-  _handlePeerError(error, peerId) {
-    logger.error(`Peer ${peerId} error:`, error);
-    this.emit("peer:error", { peerId, error });
-  }
-
-  _handlePeerDisconnect(peerId) {
-    const peer = this.peers.get(peerId);
-    if (peer) {
-      this._disconnectPeer(peerId, peer);
-    }
-  }
-
-  _disconnectPeer(peerId, peer) {
+  async requestHeight(peerId) {
     try {
-      peer.conn.destroy();
+      const stream = await this.peers.get(peerId).connection.newStream('/drakon/1.0.0');
+      const message = {
+        type: 'height_request',
+        timestamp: Date.now()
+      };
+      await stream.sink([Buffer.from(JSON.stringify(message))]);
+      const response = await stream.source.next();
+      const data = JSON.parse(response.value.toString());
+      return data.height;
     } catch (error) {
-      logger.error(`Error destroying connection for peer ${peerId}:`, error);
+      this.logger.error(`Errore nella richiesta dell'altezza al peer ${peerId}:`, error);
+      throw error;
     }
-
-    this.peers.delete(peerId);
-    this.routingTable.removeNode(peerId);
-    this.stats.activeConnections = this.peers.size;
-
-    this.emit("peer:disconnected", { peerId });
-    logger.info(`Peer disconnected: ${peerId}`);
   }
 
-  _handleError(error) {
-    logger.error("Network error:", error);
-    this.emit("error", error);
+  async requestBlock(peerId, height) {
+    try {
+      const stream = await this.peers.get(peerId).connection.newStream('/drakon/1.0.0');
+      const message = {
+        type: 'block_request',
+        height,
+        timestamp: Date.now()
+      };
+      await stream.sink([Buffer.from(JSON.stringify(message))]);
+      const response = await stream.source.next();
+      const data = JSON.parse(response.value.toString());
+      return data.block;
+    } catch (error) {
+      this.logger.error(`Errore nella richiesta del blocco ${height} al peer ${peerId}:`, error);
+      throw error;
+    }
   }
 
-  _startPingInterval() {
-    setInterval(() => {
-      this.broadcast("ping", { timestamp: Date.now() });
-    }, 60000); // Ogni minuto
+  async _getNetworkInfo() {
+    try {
+      // Usa le informazioni dalla DHT
+      return {
+        address: this.dht.myIp,
+        type: this._determineNetworkType(this.dht.myIp)
+      };
+    } catch (error) {
+      this.logger.error("Errore nell'ottenere informazioni di rete:", error);
+      // Fallback a localhost
+      return {
+        address: '127.0.0.1',
+        type: 'private'
+      };
+    }
   }
 
-  _startCleanupInterval() {
-    setInterval(() => {
-      const now = Date.now();
-      const timeout = 5 * 60 * 1000; // 5 minuti
+  _determineNetworkType(ip) {
+    if (ip === '127.0.0.1') {
+      return 'loopback';
+    }
+    if (
+      ip.startsWith('10.') ||
+      ip.startsWith('192.168.') ||
+      (ip.startsWith('172.') &&
+        parseInt(ip.split('.')[1]) >= 16 &&
+        parseInt(ip.split('.')[1]) <= 31)
+    ) {
+      return 'private';
+    }
+    return 'public';
+  }
 
-      for (const [peerId, peer] of this.peers.entries()) {
-        if (now - peer.lastSeen > timeout) {
-          logger.info(`Removing inactive peer: ${peerId}`);
-          this._disconnectPeer(peerId, peer);
+  // Trova i bootstrap nodes per il discovery iniziale
+  async _findBootstrapNodes() {
+    const bootstrapNodes = [];
+
+    try {
+      // Aggiungi i bootstrap nodes dalla configurazione
+      if (this.config.p2p.bootstrapNodes && Array.isArray(this.config.p2p.bootstrapNodes)) {
+        for (const node of this.config.p2p.bootstrapNodes) {
+          // Verifica se è un indirizzo multiaddr o un oggetto con host/port
+          if (typeof node === 'string') {
+            bootstrapNodes.push(node);
+          } else if (node.host && node.port) {
+            bootstrapNodes.push(
+              `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id || 'QmBootstrap'}`
+            );
+          }
         }
       }
 
-      // Pulisci anche la tabella di routing
-      this.routingTable.cleanup();
-    }, 60000); // Ogni minuto
+      // Se non ci sono bootstrap nodes configurati, prova con gli ultimi nodi conosciuti
+      if (bootstrapNodes.length === 0) {
+        // Carica gli ultimi nodi conosciuti dal database o dal file di configurazione
+        const knownPeers = await this._loadKnownPeers();
+        if (knownPeers.length > 0) {
+          for (const peer of knownPeers) {
+            if (peer.id && peer.host && peer.port) {
+              bootstrapNodes.push(`/ip4/${peer.host}/tcp/${peer.port}/p2p/${peer.id}`);
+            }
+          }
+        }
+      }
+
+      this.logger.info(`Bootstrap nodes trovati: ${bootstrapNodes.join(', ') || 'nessuno'}`);
+      return bootstrapNodes;
+    } catch (error) {
+      this.logger.error('Errore nella ricerca dei bootstrap nodes:', error);
+      return [];
+    }
+  }
+
+  // Carica i peer conosciuti dal database o file
+  async _loadKnownPeers() {
+    try {
+      const peerCachePath = path.join(this.config.node.dataDir, 'known-peers.json');
+
+      if (fs.existsSync(peerCachePath)) {
+        const peerData = JSON.parse(fs.readFileSync(peerCachePath, 'utf8'));
+        if (Array.isArray(peerData) && peerData.length > 0) {
+          // Filtra solo i peer che sono stati visti recentemente (ultimi 7 giorni)
+          const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+          return peerData.filter(peer => peer.lastSeen > sevenDaysAgo);
+        }
+      }
+
+      return [];
+    } catch (error) {
+      this.logger.error('Errore nel caricamento dei peer conosciuti:', error);
+      return [];
+    }
+  }
+
+  // Salva i peer conosciuti per uso futuro
+  async _saveKnownPeers() {
+    try {
+      const peerCachePath = path.join(this.config.node.dataDir, 'known-peers.json');
+      const peerDir = path.dirname(peerCachePath);
+
+      // Assicurati che la directory esista
+      if (!fs.existsSync(peerDir)) {
+        fs.mkdirSync(peerDir, { recursive: true });
+      }
+
+      // Ottieni i peer attivi dalla DHT
+      const activePeers = this.dht.getAllNodes().map(peer => ({
+        id: peer.nodeId,
+        host: peer.ip,
+        port: peer.port,
+        lastSeen: Date.now()
+      }));
+
+      // Salva i peer in un file
+      fs.writeFileSync(peerCachePath, JSON.stringify(activePeers), 'utf8');
+    } catch (error) {
+      this.logger.error('Errore nel salvataggio dei peer conosciuti:', error);
+    }
+  }
+
+  // Imposta la manutenzione periodica della DHT
+  _setupDHTMaintenance() {
+    // Aggiungi logica di discovery DHT
+    if (this.config.p2p.discovery?.dht) {
+      const interval = this.config.p2p.discovery.interval || 60000;
+
+      // Esegui una manutenzione iniziale
+      this._performDHTMaintenance();
+
+      // Pianifica la manutenzione periodica
+      setInterval(() => {
+        this._performDHTMaintenance();
+      }, interval);
+    }
+  }
+
+  // Esegue la manutenzione della DHT e aggiorna la conoscenza della rete
+  async _performDHTMaintenance() {
+    try {
+      // Pulizia nodi non più attivi
+      this.dht.cleanupStaleNodes();
+
+      // Cerca nuovi nodi attraverso i peer esistenti
+      if (this.node && this.node.pubsub) {
+        const peers = this.node.getPeers();
+        for (const peer of peers) {
+          try {
+            await this._queryPeerForNodes(peer);
+          } catch (error) {
+            this.logger.debug(`Errore nella query del peer ${peer}:`, error.message);
+          }
+        }
+      }
+
+      // Salva i peer conosciuti
+      await this._saveKnownPeers();
+    } catch (error) {
+      this.logger.error('Errore durante la manutenzione DHT:', error);
+    }
+  }
+
+  // Interroga un peer per ottenere la sua conoscenza di altri nodi
+  async _queryPeerForNodes(peerId) {
+    // Questa implementazione dipende dalle funzionalità specifiche di libp2p
+    // e dovrebbe essere adattata alla tua implementazione di rete
+    // ...
+  }
+
+  _setupEventHandlers() {
+    this.node.addEventListener('peer:discovery', this._handlePeerDiscovery.bind(this));
+    this.node.addEventListener('peer:connect', this._handlePeerConnect.bind(this));
+    this.node.addEventListener('peer:disconnect', this._handlePeerDisconnect.bind(this));
+    this.node.addEventListener('peer:error', this._handlePeerError.bind(this));
+
+    // Aggiungi eventi dalla DHT
+    this.dht.on('node:added', ({ nodeId, nodeInfo }) => {
+      this.logger.debug(`Nuovo nodo aggiunto alla DHT: ${nodeId}`);
+      this.emit('dht:node:added', { nodeId, nodeInfo });
+    });
+
+    this.dht.on('node:updated', ({ nodeId, nodeInfo }) => {
+      this.logger.debug(`Nodo aggiornato nella DHT: ${nodeId}`);
+      this.emit('dht:node:updated', { nodeId, nodeInfo });
+    });
+
+    this.dht.on('node:removed', ({ nodeId, nodeInfo }) => {
+      this.logger.debug(`Nodo rimosso dalla DHT: ${nodeId}`);
+      this.emit('dht:node:removed', { nodeId, nodeInfo });
+    });
+  }
+
+  async _startDiscovery() {
+    try {
+      await this.node.peerStore.load();
+
+      // Converti i bootstrap nodes in formato libp2p
+      const bootstrapAddresses = this.config.p2p.bootstrapNodes.map(node => {
+        return {
+          id: node.id || this.dht._hashAddress(`${node.host}:${node.port}`),
+          multiaddrs: [`/ip4/${node.host}/tcp/${node.port}`]
+        };
+      });
+
+      // Aggiungi i nodi al peerStore
+      for (const addr of bootstrapAddresses) {
+        await this.node.peerStore.addressBook.add(addr.id, addr.multiaddrs);
+      }
+
+      // Tenta la connessione
+      for (const addr of bootstrapAddresses) {
+        try {
+          await this.node.dial(addr.id);
+          this.logger.info(`Connesso al bootstrap node: ${addr.id}`);
+        } catch (error) {
+          this.logger.warn(
+            `Non è stato possibile connettersi al bootstrap node: ${addr.id}`,
+            error.message
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error("Errore durante l'avvio del discovery:", error);
+    }
+  }
+
+  async _handlePeerDiscovery(event) {
+    const { id, multiaddrs } = event.detail;
+    this.logger.info(`Peer scoperto: ${id}`);
+
+    try {
+      await this.node.dial(id);
+    } catch (error) {
+      this.logger.error(`Errore nella connessione al peer ${id}:`, error);
+    }
+  }
+
+  async _handlePeerConnect(event) {
+    const { id, connection } = event.detail;
+    this.logger.info(`Peer connesso: ${id}`);
+
+    // Aggiungi alla lista dei peer
+    this.peers.set(id, {
+      connection,
+      status: 'connected',
+      lastSeen: Date.now(),
+      messageCount: 0
+    });
+
+    // Aggiorna le statistiche
+    this.stats.activeConnections++;
+    this.stats.totalConnections++;
+
+    // Imposta il gestore dei messaggi per questo peer
+    this._setupMessageHandler(connection);
+
+    // Aggiungi il peer alla DHT
+    const peerInfo = await this._getPeerInfo(id, connection);
+    this.dht.addNode(id, peerInfo);
+
+    // Scambia informazioni sulla DHT
+    await this._exchangeDHTInfo(id, connection);
+
+    // Invia evento
+    this.emit('peer:connect', { id, connection, peerInfo });
+  }
+
+  async _getPeerInfo(peerId, connection) {
+    // Estrai informazioni dalla connessione
+    let peerAddress = '127.0.0.1';
+    let peerPort = 6001;
+
+    // Prova a estrarre l'indirizzo dall'oggetto connection
+    try {
+      const remoteAddr = connection.remoteAddr.toString();
+      const ipMatch = remoteAddr.match(/\/ip4\/([^\/]+)\/tcp\/(\d+)/);
+      if (ipMatch) {
+        peerAddress = ipMatch[1];
+        peerPort = parseInt(ipMatch[2]);
+      }
+    } catch (error) {
+      this.logger.debug(`Impossibile estrarre l'indirizzo dal peer ${peerId}:`, error.message);
+    }
+
+    return {
+      ip: peerAddress,
+      port: peerPort,
+      lastSeen: Date.now(),
+      metadata: {
+        // Queste informazioni saranno aggiornate durante lo scambio DHT
+        isBootstrap: false,
+        version: '1.0.0'
+      }
+    };
+  }
+
+  async _exchangeDHTInfo(peerId, connection) {
+    try {
+      const stream = await connection.newStream('/drakon/1.0.0');
+
+      // Invia informazioni sul nostro nodo
+      const nodeInfo = {
+        type: 'dht_exchange',
+        nodeId: this.myId,
+        ip: this.dht.myIp,
+        port: this.config.p2p.port,
+        metadata: {
+          isBootstrap: this.config.node?.isBootstrap || false,
+          version: this.config.version || '1.0.0',
+          name: this.config.node?.name
+        },
+        timestamp: Date.now()
+      };
+
+      await stream.sink([Buffer.from(JSON.stringify(nodeInfo))]);
+      this.logger.debug(`Informazioni DHT inviate al peer ${peerId}`);
+
+      // Leggi la risposta
+      const response = await this._readStream(stream);
+      if (response && response.type === 'dht_exchange' && response.nodeId) {
+        // Aggiorna la DHT con le informazioni ricevute
+        this.dht.updateNode(response.nodeId, {
+          ip: response.ip,
+          port: response.port,
+          metadata: response.metadata
+        });
+        this.logger.debug(`Ricevute informazioni DHT dal peer ${response.nodeId}`);
+      }
+    } catch (error) {
+      this.logger.debug(
+        `Errore nello scambio di informazioni DHT con il peer ${peerId}:`,
+        error.message
+      );
+    }
+  }
+
+  async _readStream(stream) {
+    try {
+      const { value } = await stream.source.next();
+      return JSON.parse(value.toString());
+    } catch (error) {
+      this.logger.error('Errore nella lettura dello stream:', error);
+      return null;
+    }
+  }
+
+  async _handlePeerDisconnect(event) {
+    const { id } = event.detail;
+    this.logger.info(`Peer disconnesso: ${id}`);
+
+    await this._disconnectPeer(id);
+  }
+
+  async _handlePeerError(event) {
+    const { id, error } = event.detail;
+    this.logger.error(`Errore del peer ${id}:`, error);
+
+    await this._disconnectPeer(id);
+  }
+
+  async _disconnectPeer(peerId) {
+    const peer = this.peers.get(peerId);
+    if (peer) {
+      try {
+        await peer.connection.close();
+        this.peers.delete(peerId);
+        this.stats.activeConnections--;
+
+        // Non rimuoviamo il peer dalla DHT, ma lo aggiorniamo come offline
+        if (this.dht.getNode(peerId)) {
+          this.dht.updateNode(peerId, { isOnline: false, lastSeen: Date.now() });
+        }
+
+        this.emit('peer:disconnect', { id: peerId });
+      } catch (error) {
+        this.logger.error(`Errore durante la disconnessione del peer ${peerId}:`, error);
+      }
+    }
+  }
+
+  _setupMessageHandler(connection) {
+    connection.addEventListener('data', async event => {
+      try {
+        const message = JSON.parse(event.data.toString());
+        await this._handleMessage(message, connection);
+      } catch (error) {
+        this.logger.error('Errore nella gestione del messaggio:', error);
+      }
+    });
+  }
+
+  async _handleMessage(message, connection) {
+    this.stats.messagesReceived++;
+
+    switch (message.type) {
+      case 'broadcast':
+        await this._handleBroadcast(message, connection);
+        break;
+      case 'ping':
+        await this._handlePing(message, connection);
+        break;
+      case 'network_info':
+        await this._handleNetworkInfo(message, connection);
+        break;
+      case 'dht_exchange':
+        await this._handleDHTExchange(message, connection);
+        break;
+      case 'dht_info':
+        await this._handleDHTInfo(message, connection);
+        break;
+      case 'find_node':
+        await this._handleFindNode(message, connection);
+        break;
+      default:
+        this.logger.warn(`Tipo di messaggio non supportato: ${message.type}`);
+    }
+  }
+
+  async _handleBroadcast(message, connection) {
+    // Implementa la logica per gestire i messaggi broadcast
+    this.logger.info(`Messaggio broadcast ricevuto: ${JSON.stringify(message.data)}`);
+
+    // Emetti evento per notificare gli altri componenti
+    this.emit('message:broadcast', message.data);
+  }
+
+  async _handlePing(message, connection) {
+    // Implementa la logica per gestire i ping
+    const response = {
+      type: 'pong',
+      timestamp: Date.now(),
+      sender: this.myId
+    };
+
+    try {
+      const stream = await connection.newStream('/drakon/1.0.0');
+      await stream.sink([Buffer.from(JSON.stringify(response))]);
+    } catch (error) {
+      this.logger.error("Errore nell'invio della risposta ping:", error);
+    }
+  }
+
+  async _handleNetworkInfo(message, connection) {
+    // Implementa la logica per gestire le informazioni di rete
+    this.logger.info(`Informazioni di rete ricevute: ${JSON.stringify(message.data)}`);
+
+    // Aggiorna la DHT se ci sono informazioni utili
+    if (message.data?.nodeId && message.data?.ip) {
+      this.dht.updateNode(message.data.nodeId, {
+        ip: message.data.ip,
+        port: message.data.port || this.config.p2p.port,
+        metadata: message.data.metadata
+      });
+    }
+  }
+
+  async _handleDHTExchange(message, connection) {
+    // Gestisci la richiesta di scambio informazioni DHT
+    if (message.nodeId) {
+      // Aggiorna la DHT con le informazioni ricevute
+      this.dht.updateNode(message.nodeId, {
+        ip: message.ip,
+        port: message.port,
+        metadata: message.metadata,
+        isOnline: true
+      });
+
+      // Invia una risposta con le nostre informazioni
+      try {
+        const response = {
+          type: 'dht_exchange',
+          nodeId: this.myId,
+          ip: this.dht.myIp,
+          port: this.config.p2p.port,
+          metadata: {
+            isBootstrap: this.config.node?.isBootstrap || false,
+            version: this.config.version || '1.0.0',
+            name: this.config.node?.name
+          },
+          timestamp: Date.now()
+        };
+
+        const stream = await connection.newStream('/drakon/1.0.0');
+        await stream.sink([Buffer.from(JSON.stringify(response))]);
+      } catch (error) {
+        this.logger.error("Errore nell'invio della risposta DHT:", error);
+      }
+    }
+  }
+
+  async _handleDHTInfo(message, connection) {
+    // Rispondi con le informazioni sulla DHT
+    try {
+      // Prendiamo i 10 nodi più recenti dalla DHT
+      const nodes = this.dht
+        .getAllNodes()
+        .sort((a, b) => b.lastSeen - a.lastSeen)
+        .slice(0, 10);
+
+      const response = {
+        type: 'dht_info_response',
+        nodes,
+        sender: this.myId,
+        timestamp: Date.now()
+      };
+
+      const stream = await connection.newStream('/drakon/1.0.0');
+      await stream.sink([Buffer.from(JSON.stringify(response))]);
+    } catch (error) {
+      this.logger.error("Errore nell'invio delle informazioni DHT:", error);
+    }
+  }
+
+  async _handleFindNode(message, connection) {
+    // Gestisci la richiesta di ricerca di un nodo
+    if (message.targetId) {
+      try {
+        // Cerca il nodo nella DHT locale
+        const targetNode = this.dht.getNode(message.targetId);
+
+        // Trova i nodi più vicini al target
+        const closestNodes = this.dht.getClosestNodes(message.targetId, 20);
+
+        const response = {
+          type: 'find_node_response',
+          targetId: message.targetId,
+          found: !!targetNode,
+          node: targetNode,
+          nodes: closestNodes,
+          sender: this.myId,
+          timestamp: Date.now()
+        };
+
+        const stream = await connection.newStream('/drakon/1.0.0');
+        await stream.sink([Buffer.from(JSON.stringify(response))]);
+      } catch (error) {
+        this.logger.error("Errore nell'invio della risposta find_node:", error);
+      }
+    }
   }
 }
-
-module.exports = NetworkManager;
