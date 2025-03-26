@@ -386,6 +386,25 @@ export class NetworkManager extends EventEmitter {
     const bootstrapNodes = [];
 
     try {
+      // Aggiungiamo sempre i nostri nodi bootstrap fissi
+      const staticBootstrapNodes = [
+        {
+          host: '51.89.148.92',
+          port: 22201,
+          id: '12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht'
+        },
+        {
+          host: '135.125.232.233',
+          port: 6001,
+          id: '12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy'
+        }
+      ];
+
+      // Aggiungi i nodi bootstrap fissi
+      for (const node of staticBootstrapNodes) {
+        bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
+      }
+
       // Aggiungi i bootstrap nodes dalla configurazione
       if (this.config.p2p.bootstrapNodes && Array.isArray(this.config.p2p.bootstrapNodes)) {
         for (const node of this.config.p2p.bootstrapNodes) {
@@ -625,7 +644,6 @@ export class NetworkManager extends EventEmitter {
 
   async _startDiscovery() {
     try {
-      // Verifica che this.node e this.node.peerStore esistano
       if (!this.node || !this.node.peerStore) {
         this.logger.error(
           'Impossibile avviare discovery: this.node o this.node.peerStore non definito'
@@ -638,18 +656,37 @@ export class NetworkManager extends EventEmitter {
         await this.node.peerStore.load();
       }
 
-      // Verifica che config.p2p.bootstrapNodes esista
+      // Array dei nostri bootstrap nodes fissi
+      const staticBootstrapNodes = [
+        {
+          host: '51.89.148.92',
+          port: 22201,
+          id: '12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht'
+        },
+        {
+          host: '135.125.232.233',
+          port: 6001,
+          id: '12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy'
+        }
+      ];
+
+      // Ottieni array di bootstrap nodes dalla configurazione o usa i nodi fissi
+      let bootstrapNodes = staticBootstrapNodes;
+
+      // Verifica che config.p2p.bootstrapNodes esista e aggiungi quei nodi
       if (
-        !this.config.p2p ||
-        !this.config.p2p.bootstrapNodes ||
-        !Array.isArray(this.config.p2p.bootstrapNodes)
+        this.config.p2p &&
+        this.config.p2p.bootstrapNodes &&
+        Array.isArray(this.config.p2p.bootstrapNodes)
       ) {
-        this.logger.warn('Nessun bootstrap node configurato');
-        return;
+        // Aggiungi i nodi della configurazione ai nodi fissi
+        bootstrapNodes = [...staticBootstrapNodes, ...this.config.p2p.bootstrapNodes];
+      } else {
+        this.logger.warn('Nessun bootstrap node configurato, usando solo i nodi fissi');
       }
 
       // Converti i bootstrap nodes in formato libp2p
-      const bootstrapAddresses = this.config.p2p.bootstrapNodes.map(node => {
+      const bootstrapAddresses = bootstrapNodes.map(node => {
         // Verifica che this.dht esista prima di usarlo
         const id =
           node.id ||
