@@ -10,11 +10,15 @@ import os from 'os';
 export class DHTManager extends EventEmitter {
   constructor(config) {
     super();
-    this.config = config;
+    this.config = config || {};
     this.logger = new Logger('DHT');
     this.nodeId = config.node?.id || this._generateNodeId();
     this.routingTable = new Map(); // peerId -> {ip, port, lastSeen, metadata}
-    this.buckets = new Array(160).fill().map(() => new Map()); // Per l'algoritmo Kademlia, un bucket per ogni bit
+    this.buckets = Array(160)
+      .fill()
+      .map(() => new Map());
+    this.k = 20; // Numero massimo di nodi per bucket
+    this.initialized = false;
     this.networkInterface = this._getNetworkInterface();
     this.myIp = this._getMyIp();
     this.myPort = config.p2p?.port || 6001;
@@ -62,58 +66,87 @@ export class DHTManager extends EventEmitter {
   /**
    * Aggiunge un nodo alla DHT
    */
-  addNode(nodeId, nodeInfo) {
-    if (nodeId === this.nodeId) {
-      // Sono io
-      this.logger.debug(`Aggiunto nodo locale alla DHT: ${nodeId}`);
-    } else {
-      this.logger.debug(`Aggiunto nodo alla DHT: ${nodeId} - ${nodeInfo.ip}:${nodeInfo.port}`);
+  addNode(nodeId, info) {
+    try {
+      if (!nodeId) {
+        this.logger.warn('Tentativo di aggiungere un nodo senza ID');
+        return false;
+      }
+
+      // Assicurati che routingTable sia inizializzata
+      if (!this.routingTable) {
+        this.routingTable = new Map();
+      }
+
+      // Aggiungi o aggiorna il nodo nella tabella di routing
+      this.routingTable.set(nodeId, {
+        ...info,
+        lastSeen: Date.now()
+      });
+
+      // Se ci sono i bucket, aggiorna anche quelli
+      if (this.buckets) {
+        // Calcola l'indice del bucket
+        const bucketIndex = this._getBucketIndex(nodeId);
+        if (bucketIndex >= 0 && bucketIndex < this.buckets.length) {
+          this.buckets[bucketIndex].set(nodeId, {
+            ...info,
+            lastSeen: Date.now()
+          });
+        }
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Errore nell'aggiunta del nodo ${nodeId}:`, error);
+      return false;
     }
-
-    // Aggiorna la routing table
-    this.routingTable.set(nodeId, {
-      ...nodeInfo,
-      lastSeen: Date.now()
-    });
-
-    // Aggiorna i bucket Kademlia
-    const bucketIndex = this._getBucketIndex(nodeId);
-    this.buckets[bucketIndex].set(nodeId, {
-      ...nodeInfo,
-      lastSeen: Date.now()
-    });
-
-    // Emetti evento
-    this.emit('node:added', { nodeId, nodeInfo });
   }
 
   /**
    * Aggiorna un nodo esistente nella DHT
    */
-  updateNode(nodeId, nodeInfo) {
-    if (this.routingTable.has(nodeId)) {
-      const existingInfo = this.routingTable.get(nodeId);
+  updateNode(nodeId, info) {
+    try {
+      if (!nodeId) {
+        this.logger.warn('Tentativo di aggiornare un nodo senza ID');
+        return false;
+      }
 
-      // Aggiorna con le nuove informazioni ma mantieni i dati esistenti
-      this.routingTable.set(nodeId, {
-        ...existingInfo,
-        ...nodeInfo,
-        lastSeen: Date.now()
-      });
+      // Assicurati che routingTable sia inizializzata
+      if (!this.routingTable) {
+        this.routingTable = new Map();
+        this.logger.warn('Inizializzazione forzata di routingTable durante updateNode');
+      }
 
-      // Aggiorna anche nel bucket
-      const bucketIndex = this._getBucketIndex(nodeId);
-      this.buckets[bucketIndex].set(nodeId, {
-        ...existingInfo,
-        ...nodeInfo,
-        lastSeen: Date.now()
-      });
-
-      this.logger.debug(`Aggiornato nodo nella DHT: ${nodeId}`);
-      this.emit('node:updated', { nodeId, nodeInfo });
-    } else {
       // Se il nodo non esiste, aggiungilo
-      this.addNode(nodeId, nodeInfo);
+      if (!this.routingTable.has(nodeId)) {
+        return this.addNode(nodeId, info);
+      }
+
+      // Aggiorna il nodo esistente
+      this.routingTable.set(nodeId, {
+        ...this.routingTable.get(nodeId),
+        ...info,
+        lastSeen: Date.now()
+      });
+
+      // Se ci sono i bucket, aggiorna anche quelli
+      if (this.buckets) {
+        const bucketIndex = this._getBucketIndex(nodeId);
+        if (bucketIndex >= 0 && bucketIndex < this.buckets.length) {
+          this.buckets[bucketIndex].set(nodeId, {
+            ...(this.buckets[bucketIndex].get(nodeId) || {}),
+            ...info,
+            lastSeen: Date.now()
+          });
+        }
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Errore nell'aggiornamento del nodo ${nodeId}:`, error);
+      return false;
     }
   }
 

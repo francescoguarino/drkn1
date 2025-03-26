@@ -17,7 +17,7 @@ import { fromString as uint8ArrayFromString } from 'uint8arrays/from-string';
 export class NetworkManager extends EventEmitter {
   constructor(config) {
     super();
-    this.config = config;
+    this.config = config || {};
     this.logger = new Logger('NetworkManager');
     this.node = null;
     this.peers = new Map();
@@ -26,7 +26,7 @@ export class NetworkManager extends EventEmitter {
     this.swarm = null;
     this.myId = null;
     this.peerId = null;
-    this.dht = new DHTManager(config);
+    this.dht = new DHTManager(config || {});
     this.stats = {
       totalConnections: 0,
       activeConnections: 0,
@@ -922,13 +922,31 @@ export class NetworkManager extends EventEmitter {
       });
 
       // Aggiorna le statistiche
-      if (this.stats) {
-        this.stats.activeConnections = (this.stats.activeConnections || 0) + 1;
-        this.stats.totalConnections = (this.stats.totalConnections || 0) + 1;
+      if (!this.stats) {
+        this.stats = {
+          totalConnections: 0,
+          activeConnections: 0,
+          messagesSent: 0,
+          messagesReceived: 0,
+          networkType: 'private',
+          myAddress: null,
+          peersCount: 0,
+          routingTableSize: 0
+        };
       }
+
+      this.stats.activeConnections = (this.stats.activeConnections || 0) + 1;
+      this.stats.totalConnections = (this.stats.totalConnections || 0) + 1;
 
       // Imposta il gestore dei messaggi per questo peer
       this._setupMessageHandler(connection);
+
+      // Verifica se la DHT è inizializzata e altrimenti la inizializza
+      if (!this.dht) {
+        this.dht = new DHTManager(this.config || {});
+        await this.dht.initialize();
+        this.logger.warn('Inizializzazione forzata della DHT durante la connessione');
+      }
 
       // Aggiungi il peer alla DHT
       if (this.dht && typeof this.dht.addNode === 'function') {
