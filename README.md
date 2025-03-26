@@ -84,14 +84,20 @@ Per far comunicare i nodi tra loro su macchine diverse, è necessario configurar
 
 ### Nodi bootstrap predefiniti
 
-La rete Drakon include due nodi bootstrap predefiniti che facilitano l'ingresso nella rete:
+La rete Drakon include due nodi bootstrap predefiniti attivi che facilitano l'ingresso nella rete:
 
 ```
-bootstrap1.drakon-network.io:6001
-bootstrap2.drakon-network.io:6001
+Server 1: 51.89.148.92:22201 (ID: 12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht)
+Server 2: 135.125.232.233:6001 (ID: 12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy)
 ```
 
 Questi nodi sono configurati nella rete per impostazione predefinita, quindi i nuovi nodi dovrebbero essere in grado di connettersi automaticamente alla rete senza configurazione aggiuntiva.
+
+Per connettersi manualmente a questi nodi, è possibile utilizzare:
+
+```bash
+BOOTSTRAP_NODES='[{"host":"51.89.148.92","port":22201,"id":"12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht"},{"host":"135.125.232.233","port":6001,"id":"12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy"}]' node src/index.js
+```
 
 ## API REST
 
