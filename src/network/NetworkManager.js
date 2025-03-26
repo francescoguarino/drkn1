@@ -168,9 +168,26 @@ export class NetworkManager extends EventEmitter {
         try {
           const idString = fs.readFileSync(peerIdStringFile, 'utf8').trim();
           this.logger.info(`Caricato PeerId da stringa: ${idString}`);
-          this.peerId = await createEd25519PeerId();
-          this.myId = idString;
-          return;
+
+          // Carica il file JSON associato per ottenere i dettagli completi
+          if (fs.existsSync(peerIdFile)) {
+            try {
+              const peerIdJson = JSON.parse(fs.readFileSync(peerIdFile, 'utf8'));
+              this.peerId = await createFromJSON(peerIdJson);
+              this.logger.info(`PeerId caricato completamente: ${this.peerId.toString()}`);
+              this.myId = this.peerId.toString();
+              return;
+            } catch (e) {
+              this.logger.warn(
+                `Errore nel caricamento del PeerId da JSON dopo il caricamento della stringa: ${e.message}`
+              );
+              // Non generare un nuovo PeerId ma continuare con il caricamento da JSON
+            }
+          } else {
+            this.logger.warn(
+              'File JSON del PeerId mancante, ma stringa presente. Ricreazione del file JSON...'
+            );
+          }
         } catch (e) {
           this.logger.warn(`Errore nel caricamento del PeerId da stringa: ${e.message}`);
           // Continua con altri metodi
