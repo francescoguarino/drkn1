@@ -57,42 +57,22 @@ export class NetworkManager extends EventEmitter {
       // Trova i bootstrap nodes
       const bootstrapNodes = await this._findBootstrapNodes();
 
-      // Determina la porta da utilizzare
-      let port = this.config.p2p.port;
+      // Determina la porta da utilizzare, con possibilità di override da variabile d'ambiente
+      let port = parseInt(process.env.P2P_PORT) || this.config.p2p.port;
+      let maxTries = 3; // Numero massimo di tentativi con porte diverse
+      let currentTry = 0;
+      let success = false;
 
-      // Configura libp2p
-      try {
-        this.node = await createLibp2p({
-          addresses: {
-            // Ascolta su tutti gli indirizzi invece di un IP specifico
-            listen: [`/ip4/0.0.0.0/tcp/${port}`]
-          },
-          transports: [tcp()],
-          streamMuxers: [mplex()],
-          connectionEncryption: [noise()],
-          peerDiscovery: [
-            bootstrap({
-              list: bootstrapNodes,
-              interval: 1000
-            })
-          ],
-          identify: {
-            host: {
-              agentVersion: `drakon/${this.config.version || '1.0.0'}`,
-              protocolVersion: '1.0.0'
-            }
-          },
-          peerId: this.peerId
-        });
-      } catch (e) {
-        // Se non riesce a connettersi alla porta originale, prova con una porta alternativa
-        if (e.message.includes('could not listen') || e.code === 'EADDRINUSE') {
-          this.logger.warn(`Porta ${port} occupata, tentativo con porta alternativa...`);
-          // Prova con una porta casuale tra 10000 e 65000
-          port = Math.floor(Math.random() * 55000) + 10000;
+      while (!success && currentTry < maxTries) {
+        currentTry++;
 
+        try {
+          this.logger.info(`Tentativo ${currentTry}/${maxTries} di avvio sulla porta ${port}`);
+
+          // Configura libp2p
           this.node = await createLibp2p({
             addresses: {
+              // Ascolta su tutti gli indirizzi invece di un IP specifico
               listen: [`/ip4/0.0.0.0/tcp/${port}`]
             },
             transports: [tcp()],
@@ -110,16 +90,41 @@ export class NetworkManager extends EventEmitter {
                 protocolVersion: '1.0.0'
               }
             },
-            peerId: this.peerId
+            peerId: this.peerId,
+            connectionManager: {
+              maxConnections: 100,
+              minConnections: 5
+            }
           });
 
-          // Aggiorna la porta nella configurazione
-          this.config.p2p.port = port;
-        } else {
-          // Se l'errore è di altro tipo, rilancia l'eccezione
-          throw e;
+          // Se siamo arrivati a questo punto, la configurazione è riuscita
+          success = true;
+        } catch (e) {
+          // Se non riesce a connettersi alla porta, prova con una porta alternativa
+          if (e.message.includes('could not listen') || e.code === 'EADDRINUSE') {
+            this.logger.warn(`Porta ${port} occupata, tentativo con porta alternativa...`);
+
+            if (currentTry < maxTries) {
+              // Genera una porta casuale tra 10000 e 65000
+              port = Math.floor(Math.random() * 55000) + 10000;
+            } else {
+              this.logger.error(
+                `Impossibile trovare una porta disponibile dopo ${maxTries} tentativi`
+              );
+              throw new Error(
+                `Impossibile avviare il nodo P2P: tutte le porte sono occupate dopo ${maxTries} tentativi`
+              );
+            }
+          } else {
+            // Se l'errore è di altro tipo, rilancia l'eccezione
+            this.logger.error(`Errore imprevisto nell'avvio del nodo P2P: ${e.message}`);
+            throw e;
+          }
         }
       }
+
+      // Aggiorna la porta nella configurazione
+      this.config.p2p.port = port;
 
       // Inizia ad ascoltare
       await this.node.start();
@@ -149,30 +154,55 @@ export class NetworkManager extends EventEmitter {
     const peerIdFile = path.join(peerIdDir, 'peer-id.json');
 
     try {
+      // Crea la directory se non esiste
+      if (!fs.existsSync(peerIdDir)) {
+        fs.mkdirSync(peerIdDir, { recursive: true });
+      }
+
       // Verifica se esiste già un file con il PeerId
       if (fs.existsSync(peerIdFile)) {
-        // Carica il PeerId esistente
-        const peerIdJson = JSON.parse(fs.readFileSync(peerIdFile, 'utf8'));
-        this.peerId = await createFromJSON(peerIdJson);
-        this.logger.info(`PeerId caricato: ${this.peerId.toString()}`);
-      } else {
-        // Crea un nuovo PeerId
-        this.peerId = await createEd25519PeerId();
-
-        // Crea la directory se non esiste
-        if (!fs.existsSync(peerIdDir)) {
-          fs.mkdirSync(peerIdDir, { recursive: true });
+        try {
+          // Carica il PeerId esistente
+          const peerIdJson = JSON.parse(fs.readFileSync(peerIdFile, 'utf8'));
+          this.peerId = await createFromJSON(peerIdJson);
+          this.logger.info(`PeerId caricato: ${this.peerId.toString()}`);
+          // Imposta l'ID anche in this.myId per coerenza
+          this.myId = this.peerId.toString();
+          return;
+        } catch (loadError) {
+          this.logger.error(
+            `Errore nel caricamento del PeerId esistente: ${loadError.message}. Creazione di un nuovo PeerId.`
+          );
+          // Continua con la creazione di un nuovo PeerId
         }
+      }
 
-        // Salva il PeerId
+      // Crea un nuovo PeerId
+      this.peerId = await createEd25519PeerId();
+
+      // Salva il PeerId
+      try {
         fs.writeFileSync(peerIdFile, JSON.stringify(this.peerId.toJSON()), 'utf8');
         this.logger.info(`Nuovo PeerId generato e salvato: ${this.peerId.toString()}`);
+        // Imposta l'ID anche in this.myId per coerenza
+        this.myId = this.peerId.toString();
+      } catch (saveError) {
+        this.logger.error(`Errore nel salvataggio del PeerId: ${saveError.message}`);
       }
     } catch (error) {
-      this.logger.error('Errore nella gestione del PeerId:', error);
-      // In caso di errore, crea comunque un PeerId in memoria
-      this.peerId = await createEd25519PeerId();
-      this.logger.info(`PeerId creato in memoria: ${this.peerId.toString()}`);
+      this.logger.error(`Errore nella gestione del PeerId: ${error.message}`);
+      try {
+        // In caso di errore, crea comunque un PeerId in memoria
+        this.peerId = await createEd25519PeerId();
+        this.logger.info(`PeerId creato in memoria: ${this.peerId.toString()}`);
+        // Imposta l'ID anche in this.myId per coerenza
+        this.myId = this.peerId.toString();
+      } catch (fallbackError) {
+        this.logger.error(
+          `Errore critico nella creazione del PeerId di fallback: ${fallbackError.message}`
+        );
+        throw new Error('Impossibile creare o caricare un PeerId valido');
+      }
     }
   }
 
@@ -400,26 +430,36 @@ export class NetworkManager extends EventEmitter {
         }
       ];
 
-      // Aggiungi i nodi bootstrap fissi
+      // Formatta gli indirizzi dei nodi in diversi formati per aumentare le possibilità di connessione
       for (const node of staticBootstrapNodes) {
+        // Formato completo
         bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
+        // Formato DNS (può funzionare meglio in alcune configurazioni di rete)
+        bootstrapNodes.push(`/dns4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
+        // Formato semplice (utile per alcuni casi)
+        bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}`);
       }
 
-      // Aggiungi i bootstrap nodes dalla configurazione
+      // Aggiungi i bootstrap nodes dalla configurazione, evitando duplicati
       if (this.config.p2p.bootstrapNodes && Array.isArray(this.config.p2p.bootstrapNodes)) {
         for (const node of this.config.p2p.bootstrapNodes) {
           // Verifica se è un indirizzo multiaddr o un oggetto con host/port
           if (typeof node === 'string') {
-            bootstrapNodes.push(node);
+            // Verifica se l'indirizzo è già presente
+            if (!bootstrapNodes.includes(node)) {
+              bootstrapNodes.push(node);
+            }
           } else if (node.host && node.port) {
-            bootstrapNodes.push(
-              `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id || 'QmBootstrap'}`
-            );
+            const nodeAddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id || 'QmBootstrap'}`;
+            // Verifica se l'indirizzo è già presente
+            if (!bootstrapNodes.includes(nodeAddr)) {
+              bootstrapNodes.push(nodeAddr);
+            }
           }
         }
       }
 
-      // Se non ci sono bootstrap nodes configurati, prova con gli ultimi nodi conosciuti
+      // Se ancora non ci sono bootstrap nodes, prova con gli ultimi nodi conosciuti
       if (bootstrapNodes.length === 0) {
         // Carica gli ultimi nodi conosciuti dal database o dal file di configurazione
         const knownPeers = await this._loadKnownPeers();
@@ -432,11 +472,25 @@ export class NetworkManager extends EventEmitter {
         }
       }
 
-      this.logger.info(`Bootstrap nodes trovati: ${bootstrapNodes.join(', ') || 'nessuno'}`);
+      // Se abbiamo più di 4 nodi, limita a massimo 4 per evitare problemi di performance
+      if (bootstrapNodes.length > 4) {
+        this.logger.info(`Limitando a 4 bootstrap nodes tra ${bootstrapNodes.length} disponibili`);
+        bootstrapNodes.splice(4);
+      }
+
+      this.logger.info(
+        `Bootstrap nodes configurati (${bootstrapNodes.length}): ${
+          bootstrapNodes.join(', ') || 'nessuno'
+        }`
+      );
       return bootstrapNodes;
     } catch (error) {
-      this.logger.error('Errore nella ricerca dei bootstrap nodes:', error);
-      return [];
+      this.logger.error(`Errore nella ricerca dei bootstrap nodes: ${error.message}`);
+      // In caso di errore, restituisci almeno i nodi statici base
+      return [
+        `/ip4/51.89.148.92/tcp/22201/p2p/12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht`,
+        `/ip4/135.125.232.233/tcp/6001/p2p/12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy`
+      ];
     }
   }
 
@@ -671,7 +725,7 @@ export class NetworkManager extends EventEmitter {
       ];
 
       // Ottieni array di bootstrap nodes dalla configurazione o usa i nodi fissi
-      let bootstrapNodes = staticBootstrapNodes;
+      let bootstrapNodes = [...staticBootstrapNodes];
 
       // Verifica che config.p2p.bootstrapNodes esista e aggiungi quei nodi
       if (
@@ -680,22 +734,34 @@ export class NetworkManager extends EventEmitter {
         Array.isArray(this.config.p2p.bootstrapNodes)
       ) {
         // Aggiungi i nodi della configurazione ai nodi fissi
-        bootstrapNodes = [...staticBootstrapNodes, ...this.config.p2p.bootstrapNodes];
+        for (const node of this.config.p2p.bootstrapNodes) {
+          // Evita duplicati verificando host e porta
+          const isDuplicate = bootstrapNodes.some(
+            existing => existing.host === node.host && existing.port === node.port
+          );
+          if (!isDuplicate) {
+            bootstrapNodes.push(node);
+          }
+        }
       } else {
-        this.logger.warn('Nessun bootstrap node configurato, usando solo i nodi fissi');
+        this.logger.warn(
+          'Nessun bootstrap node configurato nella configurazione, usando solo i nodi fissi'
+        );
       }
+
+      this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} bootstrap nodes`);
 
       // Converti i bootstrap nodes in formato libp2p
       const bootstrapAddresses = bootstrapNodes.map(node => {
-        // Verifica che this.dht esista prima di usarlo
-        const id =
-          node.id ||
-          (this.dht && typeof this.dht._hashAddress === 'function'
-            ? this.dht._hashAddress(`${node.host}:${node.port}`)
-            : `unknown-${Date.now()}`);
+        // Usa l'id fornito o genera un fallback
+        const id = node.id || `unknown-${Date.now()}`;
         return {
           id: id,
-          multiaddrs: [`/ip4/${node.host}/tcp/${node.port}`]
+          multiaddrs: [
+            `/ip4/${node.host}/tcp/${node.port}`,
+            `/ip4/${node.host}/tcp/${node.port}/p2p/${id}`,
+            `/dns4/${node.host}/tcp/${node.port}/p2p/${id}`
+          ]
         };
       });
 
@@ -708,6 +774,9 @@ export class NetworkManager extends EventEmitter {
             typeof this.node.peerStore.addressBook.add === 'function'
           ) {
             await this.node.peerStore.addressBook.add(addr.id, addr.multiaddrs);
+            this.logger.debug(
+              `Indirizzo aggiunto al peerStore: ${addr.id} -> ${addr.multiaddrs.join(', ')}`
+            );
           }
         } catch (error) {
           this.logger.warn(
@@ -717,13 +786,19 @@ export class NetworkManager extends EventEmitter {
         }
       }
 
-      // Tenta la connessione
+      // Tenta la connessione con un ritardo tra i tentativi
+      let connectedCount = 0;
       for (const addr of bootstrapAddresses) {
         try {
           // Verifica che dial esista
           if (typeof this.node.dial === 'function') {
+            this.logger.info(`Tentativo di connessione al bootstrap node: ${addr.id}`);
             await this.node.dial(addr.id);
             this.logger.info(`Connesso al bootstrap node: ${addr.id}`);
+            connectedCount++;
+
+            // Aggiungi un piccolo ritardo tra le connessioni per dare tempo alla rete
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
         } catch (error) {
           this.logger.warn(
@@ -732,19 +807,77 @@ export class NetworkManager extends EventEmitter {
           );
         }
       }
+
+      this.logger.info(
+        `Connesso a ${connectedCount} di ${bootstrapAddresses.length} bootstrap nodes`
+      );
+
+      // Se non siamo riusciti a connetterci a nessun nodo, prova ad ascoltare sulla porta predefinita
+      if (connectedCount === 0) {
+        this.logger.warn(
+          'Non è stato possibile connettersi a nessun bootstrap node. Proverò a rimanere in ascolto per connessioni in entrata.'
+        );
+      }
     } catch (error) {
       this.logger.error("Errore durante l'avvio del discovery:", error);
     }
   }
 
   async _handlePeerDiscovery(event) {
-    const { id, multiaddrs } = event.detail;
-    this.logger.info(`Peer scoperto: ${id}`);
-
     try {
-      await this.node.dial(id);
+      const { id, multiaddrs } = event.detail;
+      this.logger.info(`Peer scoperto: ${id}`);
+
+      // Verifica se siamo già connessi a questo peer
+      if (this.peers.has(id)) {
+        this.logger.debug(`Peer ${id} già connesso, aggiornamento dell'ultima attività`);
+        const peerData = this.peers.get(id);
+        peerData.lastSeen = Date.now();
+        return;
+      }
+
+      // Verifica se abbiamo già raggiunto il numero massimo di connessioni
+      const maxPeers = this.config.network?.maxPeers || 50;
+      if (this.peers.size >= maxPeers) {
+        this.logger.debug(`Numero massimo di peer (${maxPeers}) raggiunto, ignoro il peer ${id}`);
+        return;
+      }
+
+      // Prova a connettersi con un timeout
+      try {
+        this.logger.debug(`Tentativo di connessione al peer ${id}`);
+
+        // Crea una promise che si risolve quando la connessione ha successo o viene rifiutata con timeout
+        const connectWithTimeout = new Promise(async (resolve, reject) => {
+          // Timer per il timeout (5 secondi)
+          const timeoutId = setTimeout(() => {
+            reject(new Error('Timeout nella connessione al peer'));
+          }, 5000);
+
+          try {
+            // Verifica che dial esista
+            if (typeof this.node.dial === 'function') {
+              // Tenta la connessione, specificando tutte le multiaddrs disponibili
+              await this.node.dial(id);
+              clearTimeout(timeoutId);
+              resolve();
+            } else {
+              clearTimeout(timeoutId);
+              reject(new Error('Metodo dial non disponibile'));
+            }
+          } catch (dialError) {
+            clearTimeout(timeoutId);
+            reject(dialError);
+          }
+        });
+
+        await connectWithTimeout;
+        this.logger.info(`Connesso con successo al peer ${id}`);
+      } catch (error) {
+        this.logger.debug(`Errore nella connessione al peer ${id}: ${error.message}`);
+      }
     } catch (error) {
-      this.logger.error(`Errore nella connessione al peer ${id}:`, error);
+      this.logger.error(`Errore generale nella gestione della scoperta del peer: ${error.message}`);
     }
   }
 
