@@ -30,6 +30,20 @@ export class NodeStorage {
         lastUpdated: new Date().toISOString()
       };
 
+      // Assicurati che il peerId rimanga intatto se non viene fornito un nuovo valore
+      if (nodeInfo.peerId) {
+        data.peerId = nodeInfo.peerId;
+      } else if (existingInfo.peerId) {
+        data.peerId = existingInfo.peerId;
+      }
+
+      // Assicurati che il nodeId rimanga intatto se non viene fornito un nuovo valore
+      if (nodeInfo.nodeId) {
+        data.nodeId = nodeInfo.nodeId;
+      } else if (existingInfo.nodeId) {
+        data.nodeId = existingInfo.nodeId;
+      }
+
       fs.writeFileSync(this.nodeInfoFile, JSON.stringify(data, null, 2));
       this.logger.info(`Informazioni del nodo salvate con successo`);
       return true;

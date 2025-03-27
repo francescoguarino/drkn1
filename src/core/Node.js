@@ -15,7 +15,7 @@ import { APIServer } from '../api/server.js';
 import { NodeStorage } from '../utils/NodeStorage.js';
 import crypto from 'crypto';
 import path from 'path';
-import { DHTManager } from '../network/DHTManager.js';
+import { DHTManager } from '../network/DHT.js';
 
 export class Node extends EventEmitter {
   constructor(config) {
@@ -93,6 +93,9 @@ export class Node extends EventEmitter {
         id: crypto.randomBytes(16).toString('hex'),
         name: `node-${crypto.randomBytes(4).toString('hex')}`
       };
+    } else if (!validatedConfig.node.id) {
+      // Se esiste la sezione node ma manca id, generalo
+      validatedConfig.node.id = crypto.randomBytes(16).toString('hex');
     }
 
     // Blockchain
@@ -187,7 +190,13 @@ export class Node extends EventEmitter {
         this.logger.info(`Caricate informazioni del nodo esistenti con ID: ${savedInfo.nodeId}`);
         // Usa le informazioni salvate
         this.nodeId = savedInfo.nodeId;
-        this.config.node.id = this.nodeId; // Assicurati che l'ID sia coerente in tutta la configurazione
+
+        // Importante: aggiorna la configurazione prima di mostrare il banner
+        this.config.node.id = this.nodeId;
+
+        // Ricarica il banner con l'ID aggiornato
+        displayBanner(this.config);
+
         this.createdAt = new Date(savedInfo.createdAt);
         this.lastUpdated = new Date(savedInfo.lastUpdated);
 
@@ -202,6 +211,10 @@ export class Node extends EventEmitter {
         // Genera un nuovo nodeId una sola volta
         this.nodeId = crypto.randomBytes(16).toString('hex');
         this.config.node.id = this.nodeId; // Assicurati che l'ID sia coerente in tutta la configurazione
+
+        // Ricarica il banner con l'ID aggiornato
+        displayBanner(this.config);
+
         this.createdAt = new Date();
         this.lastUpdated = new Date();
       }

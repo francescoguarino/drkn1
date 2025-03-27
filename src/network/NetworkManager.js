@@ -175,18 +175,31 @@ export class NetworkManager extends EventEmitter {
         this.logger.info('Caricamento PeerId esistente...');
 
         try {
-          // Tenta di creare il PeerId dal JSON salvato
-          let peerId;
-          if (typeof savedInfo.peerId === 'object') {
-            peerId = await createFromJSON(savedInfo.peerId);
+          if (savedInfo.peerId.id && savedInfo.peerId.privKey && savedInfo.peerId.pubKey) {
+            // Formato esportato corretto
+            this.logger.info(`Tentativo di caricamento del PeerId con ID: ${savedInfo.peerId.id}`);
+
+            // Converti le chiavi da base64 a Uint8Array
+            const privKey = uint8ArrayFromString(savedInfo.peerId.privKey, 'base64pad');
+            const pubKey = uint8ArrayFromString(savedInfo.peerId.pubKey, 'base64pad');
+
+            // Crea il PeerId dalle chiavi
+            const peerIdOpts = {
+              id: savedInfo.peerId.id,
+              privateKey: privKey,
+              publicKey: pubKey
+            };
+
+            // Usa createFromJSON con le opzioni ricostruite
+            const peerId = await createFromJSON(peerIdOpts);
+
+            this.logger.info(`PeerId esistente caricato: ${peerId.toString()}`);
+            return peerId;
           } else {
-            // Se è una stringa o altro formato, crea un nuovo PeerId
+            // Formato non riconosciuto
             this.logger.warn('Formato PeerId non supportato, creazione nuovo PeerId');
             return await this._createNewPeerId();
           }
-
-          this.logger.info(`PeerId esistente caricato: ${peerId.toString()}`);
-          return peerId;
         } catch (error) {
           this.logger.error(`Errore nel caricamento del PeerId salvato: ${error.message}`);
           return await this._createNewPeerId();
@@ -212,6 +225,20 @@ export class NetworkManager extends EventEmitter {
 
       const peerId = await createEd25519PeerId(seed ? { seed } : undefined);
       this.logger.info(`Nuovo PeerId creato: ${peerId.toString()}`);
+
+      // Salva il PeerId in un formato che possiamo ricaricare
+      const peerIdExport = {
+        id: peerId.toString(),
+        privKey: uint8ArrayToString(peerId.privateKey, 'base64pad'),
+        pubKey: uint8ArrayToString(peerId.publicKey, 'base64pad')
+      };
+
+      // Salva il PeerId esportato
+      await this.storage.saveNodeInfo({
+        peerId: peerIdExport,
+        // Mantieni gli altri dati invariati
+        nodeId: this.nodeId
+      });
 
       return peerId;
     } catch (error) {
