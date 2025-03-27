@@ -343,4 +343,11 @@ export class DHTManager extends EventEmitter {
   _hashAddress(address) {
     return crypto.createHash('sha256').update(address).digest('hex');
   }
+
+  async updateNodeId(newNodeId) {
+    if (newNodeId && newNodeId !== this.nodeId) {
+      this.logger.info(`Aggiornamento nodeId da ${this.nodeId} a ${newNodeId}`);
+      this.nodeId = newNodeId;
+    }
+  }
 }
