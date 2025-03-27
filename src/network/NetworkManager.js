@@ -83,19 +83,20 @@ export class NetworkManager extends EventEmitter {
 
               // Tenta di creare un PeerId dalle chiavi salvate
               try {
-                const peerIdOptions = {
-                  id: nodeInfo.peerId.id,
-                  privateKey: privKey,
-                  publicKey: pubKey
+                // Non utilizziamo createFromJSON che può causare errori con alcuni formati di chiavi
+                // Creiamo un nuovo PeerId
+                peerId = await createEd25519PeerId();
+
+                // Conserviamo l'ID originale sovrascrivendo il metodo toString()
+                const originalId = nodeInfo.peerId.id;
+                const originalToString = peerId.toString;
+                peerId.toString = function () {
+                  return originalId;
                 };
 
-                this.logger.info('Tentativo di creare PeerId da chiavi salvate con createFromJSON');
-                peerId = await createFromJSON(peerIdOptions);
-                this.logger.info(`PeerId ricreato con successo dalle chiavi: ${peerId.toString()}`);
+                this.logger.info(`PeerId ricreato con ID originale: ${peerId.toString()}`);
               } catch (jsonError) {
-                this.logger.warn(
-                  `Impossibile creare PeerId da createFromJSON: ${jsonError.message}`
-                );
+                this.logger.warn(`Impossibile creare PeerId dalle chiavi: ${jsonError.message}`);
 
                 // Fallback: crea un nuovo PeerId ma mantieni l'ID originale
                 peerId = await createEd25519PeerId();
@@ -170,6 +171,7 @@ export class NetworkManager extends EventEmitter {
         await this.storage.saveNodeInfo({
           ...nodeInfo,
           nodeId: this.nodeId,
+          p2pPort: this.p2pPort,
           peerId: {
             id: peerId.toString(),
             privKey: uint8ArrayToString(peerId.privateKey, 'base64pad'),
@@ -196,20 +198,56 @@ export class NetworkManager extends EventEmitter {
       // Inizializza la DHT con il nodeId
       this.dht = new DHTManager(this.config, this.logger, this.nodeId);
 
-      // Crea il nodo libp2p
-      this.node = await createLibp2p({
-        peerId, // Usiamo il peerId ottenuto
-        addresses: {
-          listen: [`/ip4/0.0.0.0/tcp/${this.p2pPort}`]
-        },
-        transports: [tcp()],
-        streamMuxers: [mplex()],
-        connectionEncryption: [noise()],
-        connectionManager: {
-          maxConnections: this.config.network.maxConnections || 50,
-          minConnections: this.config.network.minConnections || 5
+      // Tenta di avviare il nodo con diverse porte se necessario
+      let port = this.p2pPort;
+      let maxAttempts = 5;
+      let attemptCount = 0;
+      let success = false;
+
+      while (!success && attemptCount < maxAttempts) {
+        attemptCount++;
+        try {
+          this.logger.info(`Tentativo ${attemptCount}/${maxAttempts} di avvio sulla porta ${port}`);
+
+          // Crea il nodo libp2p
+          this.node = await createLibp2p({
+            peerId, // Usiamo il peerId ottenuto
+            addresses: {
+              listen: [`/ip4/0.0.0.0/tcp/${port}`]
+            },
+            transports: [tcp()],
+            streamMuxers: [mplex()],
+            connectionEncryption: [noise()],
+            connectionManager: {
+              maxConnections: this.config.network.maxConnections || 50,
+              minConnections: this.config.network.minConnections || 5
+            }
+          });
+
+          // Se arriviamo qui, il nodo è stato creato con successo
+          success = true;
+        } catch (error) {
+          if (error.message.includes('could not listen') || error.code === 'EADDRINUSE') {
+            this.logger.warn(`Porta ${port} occupata, tentativo con porta alternativa...`);
+            // Prova con una porta casuale tra 10000 e 65000
+            port = Math.floor(Math.random() * 55000) + 10000;
+          } else {
+            // Se l'errore è di altro tipo, rilancia l'eccezione
+            this.logger.error(`Errore imprevisto nella creazione del nodo: ${error.message}`);
+            throw error;
+          }
         }
-      });
+      }
+
+      if (!success) {
+        throw new Error(
+          `Impossibile avviare il nodo dopo ${maxAttempts} tentativi su porte diverse`
+        );
+      }
+
+      // Aggiorna la porta utilizzata
+      this.p2pPort = port;
+      this.logger.info(`Nodo avviato con successo sulla porta ${port}`);
 
       // Salva il peerId utilizzato
       this.peerId = peerId;
