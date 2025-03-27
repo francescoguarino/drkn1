@@ -14,9 +14,6 @@ import { base58btc } from 'multiformats/bases/base58';
 import { toString as uint8ArrayToString } from 'uint8arrays/to-string';
 import { fromString as uint8ArrayFromString } from 'uint8arrays/from-string';
 import crypto from 'crypto';
-import { gossipsub } from '@libp2p/gossipsub';
-import { identify } from '@libp2p/identify';
-import { kadDHT } from '@libp2p/kad-dht';
 
 export class NetworkManager extends EventEmitter {
   constructor(config, storage) {
@@ -133,40 +130,14 @@ export class NetworkManager extends EventEmitter {
       this.node = await createLibp2p({
         peerId, // Usiamo il peerId ottenuto
         addresses: {
-          listen: [`/ip4/0.0.0.0/tcp/${this.config.p2p.port}`]
+          listen: [`/ip4/0.0.0.0/tcp/${this.p2pPort}`]
         },
         transports: [tcp()],
         streamMuxers: [mplex()],
         connectionEncryption: [noise()],
-        services: {
-          pubsub: gossipsub({
-            emitSelf: false,
-            allowPublishToZeroPeers: true
-          }),
-          identify: identify(),
-          dht: kadDHT({
-            clientMode: false,
-            validators: {
-              pk: async (key, value) => {
-                this.logger.debug('Validazione chiave pubblica...');
-                this.logger.debug(`Chiave: ${key.toString()}`);
-                this.logger.debug(`Valore: ${value.toString()}`);
-                return; // indifferent
-              }
-            },
-            selectors: {
-              pk: async (k, records) => {
-                this.logger.debug('Selezione chiave pubblica...');
-                this.logger.debug(`Chiave: ${k.toString()}`);
-                this.logger.debug(`Records trovati: ${records.length}`);
-                return 0; // seleziona il primo record
-              }
-            }
-          })
-        },
         connectionManager: {
-          maxConnections: this.config.network.maxConnections,
-          minConnections: this.config.network.minConnections
+          maxConnections: this.config.network.maxConnections || 50,
+          minConnections: this.config.network.minConnections || 5
         }
       });
 

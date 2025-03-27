@@ -51,7 +51,7 @@ export class Node extends EventEmitter {
     );
 
     try {
-      this.networkManager = new NetworkManager(this.config);
+      this.networkManager = new NetworkManager(this.config, this.storage);
       this.peerManager = new PeerManager(this.config);
       this.blockchainDB = new BlockchainDB(this.config);
 

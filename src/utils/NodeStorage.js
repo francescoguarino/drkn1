@@ -1,4 +1,5 @@
-import fs from 'fs';
+import fs from 'fs/promises';
+import { existsSync, mkdirSync, unlinkSync } from 'fs';
 import path from 'path';
 import { Logger } from './logger.js';
 
@@ -10,8 +11,8 @@ export class NodeStorage {
     this.nodeInfoPath = path.join(this.storageDir, 'node-info.json');
 
     // Crea la directory se non esiste
-    if (!fs.existsSync(this.storageDir)) {
-      fs.mkdirSync(this.storageDir, { recursive: true });
+    if (!existsSync(this.storageDir)) {
+      mkdirSync(this.storageDir, { recursive: true });
     }
   }
 
@@ -78,7 +79,7 @@ export class NodeStorage {
   async loadNodeInfo() {
     try {
       // Verifica se il file esiste
-      if (!fs.existsSync(this.nodeInfoPath)) {
+      if (!existsSync(this.nodeInfoPath)) {
         this.logger.warn(`Il file delle informazioni nodo ${this.nodeInfoPath} non esiste.`);
         return null;
       }
@@ -120,8 +121,8 @@ export class NodeStorage {
 
   async resetNodeInfo() {
     try {
-      if (fs.existsSync(this.nodeInfoPath)) {
-        fs.unlinkSync(this.nodeInfoPath);
+      if (existsSync(this.nodeInfoPath)) {
+        unlinkSync(this.nodeInfoPath);
         this.logger.info('Informazioni del nodo resettate con successo');
         return true;
       }

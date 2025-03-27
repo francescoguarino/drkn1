@@ -101,10 +101,26 @@ export class DHTManager extends EventEmitter {
         lastSeen: Date.now()
       });
 
-      // Pubblica il valore nella DHT
-      await this.node.contentRouting.provide(key);
+      // Verifica se contentRouting è disponibile prima di utilizzarlo
+      if (this.node.contentRouting) {
+        // Pubblica il valore nella DHT
+        await this.node.contentRouting.provide(key);
+        this.logger.info(
+          `NodeId ${this.nodeId} pubblicato con successo nella DHT tramite contentRouting`
+        );
+      } else {
+        // Altrimenti, utilizziamo un approccio alternativo
+        this.logger.info(
+          `ContentRouting non disponibile, nodeId ${this.nodeId} salvato localmente`
+        );
+        // Salva il valore localmente nella mapping table
+        this.routingTable.set(this.nodeId, {
+          id: this.nodeId,
+          addresses: this.node.getMultiaddrs().map(addr => addr.toString()),
+          lastSeen: Date.now()
+        });
+      }
 
-      this.logger.info(`NodeId ${this.nodeId} pubblicato con successo nella DHT`);
       return true;
     } catch (error) {
       this.logger.error(`Errore nella pubblicazione del nodeId: ${error.message}`);
@@ -126,12 +142,21 @@ export class DHTManager extends EventEmitter {
       // Crea la chiave per il nodeId
       const key = `/drakon/node/${nodeId}`;
 
-      // Cerca il valore nella DHT
-      const providers = await this.node.contentRouting.findProviders(key, { timeout: 5000 });
+      // Verifica se contentRouting è disponibile
+      if (this.node.contentRouting) {
+        // Cerca il valore nella DHT
+        const providers = await this.node.contentRouting.findProviders(key, { timeout: 5000 });
 
-      if (providers && providers.length > 0) {
-        this.logger.info(`Trovati ${providers.length} provider per il nodo ${nodeId}`);
-        return providers;
+        if (providers && providers.length > 0) {
+          this.logger.info(`Trovati ${providers.length} provider per il nodo ${nodeId}`);
+          return providers;
+        }
+      } else {
+        // Se contentRouting non è disponibile, cerca nella tabella di routing locale
+        this.logger.info(`ContentRouting non disponibile, ricerca in tabella locale per ${nodeId}`);
+        if (this.routingTable.has(nodeId)) {
+          return [this.routingTable.get(nodeId)];
+        }
       }
 
       this.logger.info(`Nessun provider trovato per il nodo ${nodeId}`);
