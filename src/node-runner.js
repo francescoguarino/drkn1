@@ -6,6 +6,7 @@ import os from 'os';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import { displayBanner } from './utils/banner.js';
+import { NodeStorage } from './utils/NodeStorage.js';
 
 const logger = new Logger('NodeRunner');
 
@@ -24,11 +25,29 @@ async function runNode(options = {}) {
     // Debug della configurazione iniziale
     logger.debug('Configurazione iniziale:', JSON.stringify(config.config, null, 2));
 
-    // Genera un ID univoco per questo nodo se non specificato
-    if (!config.config.node || !config.config.node.id) {
-      const nodeId = generateNodeId();
+    // MODIFICA: Verifica se esistono informazioni salvate prima di generare un nuovo ID
+    const nodeStorage = new NodeStorage(config.config);
+    const savedInfo = await nodeStorage.loadNodeInfo();
+
+    if (savedInfo && savedInfo.nodeId) {
+      logger.info(`Trovate informazioni salvate con ID: ${savedInfo.nodeId}`);
+
+      // Usa l'ID salvato
       if (!config.config.node) config.config.node = {};
-      config.config.node.id = nodeId;
+      config.config.node.id = savedInfo.nodeId;
+
+      logger.info(`Utilizzando ID salvato: ${savedInfo.nodeId}`);
+    } else {
+      // Genera un ID univoco per questo nodo se non specificato e non trovato nel file salvato
+      logger.info('Nessuna informazione del nodo trovata, verrà generato un nuovo ID');
+
+      if (!config.config.node || !config.config.node.id) {
+        const nodeId = generateNodeId();
+        if (!config.config.node) config.config.node = {};
+        config.config.node.id = nodeId;
+
+        logger.info(`Generato nuovo ID: ${nodeId}`);
+      }
     }
 
     // Assicurati che tutte le configurazioni necessarie esistano
@@ -61,7 +80,7 @@ async function runNode(options = {}) {
     // Mostra la configurazione
     logger.debug('Configurazione nodo finale:', JSON.stringify(config.config, null, 2));
 
-    // Mostra il banner
+    // Mostra il banner CON L'ID CORRETTO (quello salvato o nuovo)
     displayBanner(config.config);
 
     // Crea e avvia il nodo
