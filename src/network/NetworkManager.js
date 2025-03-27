@@ -174,43 +174,77 @@ export class NetworkManager extends EventEmitter {
 
       if (savedInfo && savedInfo.peerId) {
         this.logger.info('Caricamento PeerId esistente...');
+        this.logger.debug('PeerId salvato:', JSON.stringify(savedInfo.peerId, null, 2));
 
         try {
-          if (savedInfo.peerId.id && savedInfo.peerId.privKey && savedInfo.peerId.pubKey) {
-            // Formato esportato corretto
-            this.logger.info(`Tentativo di caricamento del PeerId con ID: ${savedInfo.peerId.id}`);
+          // Gestisce diversi formati possibili del peerId salvato
+          let peerIdData;
 
-            // Converti le chiavi da base64 a Uint8Array
-            const privKey = uint8ArrayFromString(savedInfo.peerId.privKey, 'base64pad');
-            const pubKey = uint8ArrayFromString(savedInfo.peerId.pubKey, 'base64pad');
-
-            // Crea il PeerId dalle chiavi
-            const peerIdOpts = {
-              id: savedInfo.peerId.id,
-              privateKey: privKey,
-              publicKey: pubKey
-            };
-
-            // Usa createFromJSON con le opzioni ricostruite
-            const peerId = await createFromJSON(peerIdOpts);
-
-            this.logger.info(`PeerId esistente caricato: ${peerId.toString()}`);
-            return peerId;
+          if (typeof savedInfo.peerId === 'string') {
+            // Prova a interpretare la stringa come JSON
+            try {
+              peerIdData = JSON.parse(savedInfo.peerId);
+              this.logger.debug(
+                'PeerId salvato come stringa JSON, convertito:',
+                JSON.stringify(peerIdData, null, 2)
+              );
+            } catch (e) {
+              this.logger.warn(
+                'PeerId salvato in un formato stringa non-JSON, impossibile recuperare'
+              );
+              return await this._createNewPeerId();
+            }
           } else {
-            // Formato non riconosciuto
-            this.logger.warn('Formato PeerId non supportato, creazione nuovo PeerId');
+            // Usa direttamente l'oggetto
+            peerIdData = savedInfo.peerId;
+          }
+
+          // Verifica se contiene le informazioni richieste
+          if (peerIdData && peerIdData.id && peerIdData.privKey && peerIdData.pubKey) {
+            this.logger.info(`Tentativo di caricamento del PeerId con ID: ${peerIdData.id}`);
+
+            try {
+              // Converti le chiavi da base64 a Uint8Array
+              const privKey = uint8ArrayFromString(peerIdData.privKey, 'base64pad');
+              const pubKey = uint8ArrayFromString(peerIdData.pubKey, 'base64pad');
+
+              // Crea il PeerId dalle chiavi
+              const peerIdOpts = {
+                id: peerIdData.id,
+                privateKey: privKey,
+                publicKey: pubKey
+              };
+
+              // Usa createFromJSON con le opzioni ricostruite
+              const peerId = await createFromJSON(peerIdOpts);
+
+              this.logger.info(`PeerId esistente caricato con successo: ${peerId.toString()}`);
+              return peerId;
+            } catch (error) {
+              this.logger.error(
+                `Errore nella conversione del PeerId salvato: ${error.message}`,
+                error
+              );
+              this.logger.info('Verrà generato un nuovo PeerId');
+              return await this._createNewPeerId();
+            }
+          } else {
+            this.logger.warn('PeerId salvato mancante di campi necessari (id, privKey, pubKey)');
             return await this._createNewPeerId();
           }
         } catch (error) {
-          this.logger.error(`Errore nel caricamento del PeerId salvato: ${error.message}`);
+          this.logger.error(`Errore nel caricamento del PeerId: ${error.message}`, error);
+          this.logger.info('Verrà generato un nuovo PeerId');
           return await this._createNewPeerId();
         }
+      } else {
+        this.logger.info('Nessun PeerId trovato, verrà creato un nuovo PeerId');
+        return await this._createNewPeerId();
       }
-
-      return await this._createNewPeerId();
     } catch (error) {
-      this.logger.error(`Errore nel caricamento del PeerId: ${error.message}`);
-      return await this._createNewPeerId();
+      this.logger.error(`Errore nel caricamento del PeerId: ${error.message}`, error);
+      this.logger.warn('Verrà utilizzato un PeerId di fallback in memoria');
+      return await createEd25519PeerId(); // Fallback: PeerId in memoria
     }
   }
 
@@ -234,11 +268,14 @@ export class NetworkManager extends EventEmitter {
         pubKey: uint8ArrayToString(peerId.publicKey, 'base64pad')
       };
 
-      // Salva il PeerId esportato
+      // Carica le informazioni esistenti per non sovrascriverle
+      const savedInfo = (await this.storage.loadNodeInfo()) || {};
+
+      // Aggiorna solo il peerId, mantenendo tutti gli altri dati
       await this.storage.saveNodeInfo({
+        ...savedInfo,
         peerId: peerIdExport,
-        // Mantieni gli altri dati invariati
-        nodeId: this.nodeId
+        nodeId: this.nodeId || savedInfo.nodeId
       });
 
       return peerId;
