@@ -12,6 +12,7 @@ import { Mempool } from '../consensus/Mempool.js';
 import { BlockchainDB } from '../storage/BlockchainDB.js';
 import { BlockchainEventEmitter } from '../utils/BlockchainEventEmitter.js';
 import { APIServer } from '../api/server.js';
+import { NodeStorage } from '../utils/NodeStorage.js';
 import crypto from 'crypto';
 import path from 'path';
 
@@ -24,6 +25,7 @@ export class Node extends EventEmitter {
 
     this.config = this._validateAndEnrichConfig(config);
     this.logger = new Logger('Node');
+    this.storage = new NodeStorage(this.config);
 
     // Debug info
     this.logger.debug(
@@ -213,6 +215,23 @@ export class Node extends EventEmitter {
       } else {
         this.logger.info('API disabilitata dalla configurazione');
       }
+
+      // Salva le informazioni del nodo
+      await this.storage.saveNodeInfo({
+        nodeId: this.config.node.id,
+        peerId: this.networkManager.myId,
+        walletAddress: this.wallet.address,
+        createdAt: new Date().toISOString(),
+        network: {
+          type: this.config.network.type,
+          p2pPort: this.config.p2p.port,
+          apiPort: this.config.api.port
+        },
+        mining: {
+          enabled: this.config.mining?.enabled || false,
+          difficulty: this.config.mining?.difficulty || 4
+        }
+      });
 
       this.isRunning = true;
       this.logger.info('Nodo Drakon avviato con successo!');

@@ -7,7 +7,7 @@ export class NodeStorage {
     this.config = config;
     this.logger = new Logger('NodeStorage');
     this.storageDir = path.join(config.node.dataDir, 'storage');
-    this.peerIdFile = path.join(this.storageDir, 'peer-id.json');
+    this.nodeInfoFile = path.join(this.storageDir, 'node-info.json');
 
     // Crea la directory se non esiste
     if (!fs.existsSync(this.storageDir)) {
@@ -15,49 +15,50 @@ export class NodeStorage {
     }
   }
 
-  async savePeerId(peerId) {
+  async saveNodeInfo(nodeInfo) {
     try {
-      const peerIdData = {
-        id: peerId.toString(),
-        createdAt: new Date().toISOString(),
+      const data = {
+        ...nodeInfo,
         lastUpdated: new Date().toISOString()
       };
 
-      fs.writeFileSync(this.peerIdFile, JSON.stringify(peerIdData, null, 2));
-      this.logger.info(`PeerId salvato con successo: ${peerId.toString()}`);
+      fs.writeFileSync(this.nodeInfoFile, JSON.stringify(data, null, 2));
+      this.logger.info(`Informazioni del nodo salvate con successo`);
       return true;
     } catch (error) {
-      this.logger.error(`Errore nel salvataggio del PeerId: ${error.message}`);
+      this.logger.error(`Errore nel salvataggio delle informazioni del nodo: ${error.message}`);
       return false;
     }
   }
 
-  async loadPeerId() {
+  async loadNodeInfo() {
     try {
-      if (!fs.existsSync(this.peerIdFile)) {
-        this.logger.info('Nessun PeerId trovato, verrà creato uno nuovo');
+      if (!fs.existsSync(this.nodeInfoFile)) {
+        this.logger.info(
+          'Nessuna informazione del nodo trovata, verranno create nuove informazioni'
+        );
         return null;
       }
 
-      const data = JSON.parse(fs.readFileSync(this.peerIdFile, 'utf8'));
-      this.logger.info(`PeerId caricato con successo: ${data.id}`);
-      return data.id;
+      const data = JSON.parse(fs.readFileSync(this.nodeInfoFile, 'utf8'));
+      this.logger.info(`Informazioni del nodo caricate con successo`);
+      return data;
     } catch (error) {
-      this.logger.error(`Errore nel caricamento del PeerId: ${error.message}`);
+      this.logger.error(`Errore nel caricamento delle informazioni del nodo: ${error.message}`);
       return null;
     }
   }
 
-  async resetPeerId() {
+  async resetNodeInfo() {
     try {
-      if (fs.existsSync(this.peerIdFile)) {
-        fs.unlinkSync(this.peerIdFile);
-        this.logger.info('PeerId resettato con successo');
+      if (fs.existsSync(this.nodeInfoFile)) {
+        fs.unlinkSync(this.nodeInfoFile);
+        this.logger.info('Informazioni del nodo resettate con successo');
         return true;
       }
       return false;
     } catch (error) {
-      this.logger.error(`Errore nel reset del PeerId: ${error.message}`);
+      this.logger.error(`Errore nel reset delle informazioni del nodo: ${error.message}`);
       return false;
     }
   }

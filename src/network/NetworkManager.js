@@ -158,18 +158,18 @@ export class NetworkManager extends EventEmitter {
       // Controlla se è stata richiesta una reimpostazione
       const resetRequested = process.env.RESET_PEER_ID === 'true';
       if (resetRequested) {
-        this.logger.info('Richiesta reimpostazione del PeerId...');
-        await this.storage.resetPeerId();
+        this.logger.info('Richiesta reimpostazione delle informazioni del nodo...');
+        await this.storage.resetNodeInfo();
       }
 
-      // Prova a caricare il PeerId esistente
-      const savedPeerId = await this.storage.loadPeerId();
+      // Prova a caricare le informazioni del nodo esistenti
+      const savedNodeInfo = await this.storage.loadNodeInfo();
 
-      if (savedPeerId) {
+      if (savedNodeInfo && savedNodeInfo.peerId) {
         try {
           // Crea un nuovo PeerId ma usa l'ID salvato
           this.peerId = await createEd25519PeerId();
-          this.myId = savedPeerId;
+          this.myId = savedNodeInfo.peerId;
           this.logger.info(`PeerId caricato e utilizzato: ${this.myId}`);
           return;
         } catch (error) {
@@ -177,15 +177,18 @@ export class NetworkManager extends EventEmitter {
         }
       }
 
-      // Se non c'è un PeerId salvato o c'è stato un errore, creane uno nuovo
+      // Se non ci sono informazioni salvate o c'è stato un errore, creane di nuove
       this.peerId = await createEd25519PeerId();
       this.myId = this.peerId.toString();
       this.logger.info(`Nuovo PeerId generato: ${this.myId}`);
 
-      // Salva il nuovo PeerId
-      await this.storage.savePeerId(this.peerId);
+      // Salva le informazioni del nodo
+      await this.storage.saveNodeInfo({
+        peerId: this.myId,
+        createdAt: new Date().toISOString()
+      });
     } catch (error) {
-      this.logger.error(`Errore nella gestione del PeerId-2CATCH: ${error.message}`);
+      this.logger.error(`Errore nella gestione del PeerId: ${error.message}`);
       // In caso di errore, crea comunque un PeerId in memoria
       this.peerId = await createEd25519PeerId();
       this.myId = this.peerId.toString();
