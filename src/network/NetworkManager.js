@@ -184,8 +184,20 @@ export class NetworkManager extends EventEmitter {
 
       // Salva le informazioni del nodo
       await this.storage.saveNodeInfo({
+        nodeId: this.config.node.id,
         peerId: this.myId,
-        createdAt: new Date().toISOString()
+        walletAddress: this.wallet?.address,
+        createdAt: savedNodeInfo?.createdAt || new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        network: {
+          type: this.config.network.type,
+          p2pPort: this.config.p2p.port,
+          apiPort: this.config.api.port
+        },
+        mining: {
+          enabled: this.config.mining?.enabled || false,
+          difficulty: this.config.mining?.difficulty || 4
+        }
       });
     } catch (error) {
       this.logger.error(`Errore nella gestione del PeerId: ${error.message}`);

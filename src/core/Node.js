@@ -182,6 +182,15 @@ export class Node extends EventEmitter {
 
       this.logger.info('Avvio del nodo Drakon...');
 
+      // Carica le informazioni del nodo esistenti
+      const savedNodeInfo = await this.storage.loadNodeInfo();
+
+      // Se esistono informazioni salvate, usa l'ID del nodo salvato
+      if (savedNodeInfo && savedNodeInfo.nodeId) {
+        this.config.node.id = savedNodeInfo.nodeId;
+        this.logger.info(`Caricato ID nodo esistente: ${savedNodeInfo.nodeId}`);
+      }
+
       // Inizializza il database
       await this.blockchainDB.init();
 
@@ -221,7 +230,8 @@ export class Node extends EventEmitter {
         nodeId: this.config.node.id,
         peerId: this.networkManager.myId,
         walletAddress: this.wallet.address,
-        createdAt: new Date().toISOString(),
+        createdAt: savedNodeInfo?.createdAt || new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
         network: {
           type: this.config.network.type,
           p2pPort: this.config.p2p.port,

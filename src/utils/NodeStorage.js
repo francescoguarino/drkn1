@@ -17,7 +17,15 @@ export class NodeStorage {
 
   async saveNodeInfo(nodeInfo) {
     try {
+      // Carica le informazioni esistenti se presenti
+      let existingInfo = {};
+      if (fs.existsSync(this.nodeInfoFile)) {
+        existingInfo = JSON.parse(fs.readFileSync(this.nodeInfoFile, 'utf8'));
+      }
+
+      // Mantieni la data di creazione originale se esiste
       const data = {
+        ...existingInfo,
         ...nodeInfo,
         lastUpdated: new Date().toISOString()
       };
@@ -41,6 +49,13 @@ export class NodeStorage {
       }
 
       const data = JSON.parse(fs.readFileSync(this.nodeInfoFile, 'utf8'));
+
+      // Verifica che tutte le informazioni necessarie siano presenti
+      if (!data.nodeId || !data.peerId || !data.walletAddress) {
+        this.logger.warn('Informazioni del nodo incomplete, verranno ricreate');
+        return null;
+      }
+
       this.logger.info(`Informazioni del nodo caricate con successo`);
       return data;
     } catch (error) {
