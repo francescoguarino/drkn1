@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 import { Logger } from '../utils/logger.js';
-import { displayBanner } from '../utils/banner.js';
 import { NetworkManager } from '../network/NetworkManager.js';
 import { PeerManager } from '../network/PeerManager.js';
 import { Blockchain } from './Blockchain.js';
@@ -27,7 +26,13 @@ export class Node extends EventEmitter {
     this.config = this._validateAndEnrichConfig(config);
     this.logger = new Logger('Node');
     this.storage = new NodeStorage(this.config);
-    this.bannerDisplayed = false; // Flag per tenere traccia se il banner è già stato mostrato
+
+    // Usa il flag dalla configurazione se presente, altrimenti inizializza a false
+    this.bannerDisplayed = config.bannerDisplayed || false;
+
+    if (config.bannerDisplayed) {
+      this.logger.debug('Banner già mostrato, non verrà visualizzato di nuovo');
+    }
 
     // Debug info
     this.logger.debug(
@@ -192,14 +197,8 @@ export class Node extends EventEmitter {
         // Usa le informazioni salvate
         this.nodeId = savedInfo.nodeId;
 
-        // Importante: aggiorna la configurazione prima di mostrare il banner
+        // Importante: aggiorna la configurazione
         this.config.node.id = this.nodeId;
-
-        // Mostra il banner solo se non è già stato mostrato
-        if (!this.bannerDisplayed) {
-          displayBanner(this.config);
-          this.bannerDisplayed = true;
-        }
 
         this.createdAt = new Date(savedInfo.createdAt);
         this.lastUpdated = new Date(savedInfo.lastUpdated);
@@ -212,14 +211,17 @@ export class Node extends EventEmitter {
         this.logger.info(
           'Nessuna informazione del nodo trovata, verranno create nuove informazioni'
         );
-        // Genera un nuovo nodeId una sola volta
-        this.nodeId = crypto.randomBytes(16).toString('hex');
-        this.config.node.id = this.nodeId; // Assicurati che l'ID sia coerente in tutta la configurazione
 
-        // Mostra il banner solo se non è già stato mostrato
-        if (!this.bannerDisplayed) {
-          displayBanner(this.config);
-          this.bannerDisplayed = true;
+        // Se l'ID è già impostato in configurazione, usa quello invece di generarne uno nuovo
+        if (this.config.node && this.config.node.id) {
+          this.logger.info(
+            `Utilizzo ID nodo esistente dalla configurazione: ${this.config.node.id}`
+          );
+          this.nodeId = this.config.node.id;
+        } else {
+          // Genera un nuovo nodeId solo se non è presente in configurazione
+          this.nodeId = crypto.randomBytes(16).toString('hex');
+          this.config.node.id = this.nodeId; // Assicurati che l'ID sia coerente in tutta la configurazione
         }
 
         this.createdAt = new Date();

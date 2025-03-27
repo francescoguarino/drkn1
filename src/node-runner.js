@@ -65,7 +65,10 @@ async function runNode(options = {}) {
     displayBanner(config.config);
 
     // Crea e avvia il nodo
-    const node = new Node(config.config);
+    const node = new Node({
+      ...config.config,
+      bannerDisplayed: true // Indica che il banner è già stato mostrato
+    });
 
     // Gestisci l'uscita pulita
     setupCleanShutdown(node);
