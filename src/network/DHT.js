@@ -8,11 +8,13 @@ import os from 'os';
  * Questa classe gestisce la tabella di routing distribuita per i nodi nella rete
  */
 export class DHTManager extends EventEmitter {
-  constructor(config) {
+  constructor(config, logger, nodeId) {
     super();
-    this.config = config || {};
-    this.logger = new Logger('DHT');
-    this.nodeId = null; // Inizializzato a null, sarà impostato in initialize()
+    this.config = config;
+    this.logger = logger;
+    this.nodeId = nodeId;
+    this.node = null; // Riferimento al nodo libp2p
+    this.isStarted = false;
     this.routingTable = new Map(); // peerId -> {ip, port, lastSeen, metadata}
     this.buckets = Array(160)
       .fill()
@@ -28,51 +30,116 @@ export class DHTManager extends EventEmitter {
    * Inizializza la DHT
    */
   async initialize(nodeId) {
-    // Usa il nodeId fornito, se presente
     if (nodeId) {
       this.nodeId = nodeId;
-    } else if (this.config.node?.id) {
-      this.nodeId = this.config.node.id;
-    } else {
-      // Solo come fallback generiamo un nuovo ID
-      this.nodeId = this._generateNodeId();
-      this.logger.warn('Nessun nodeId fornito, generato nuovo ID: ' + this.nodeId);
     }
 
-    this.logger.info(`Inizializzazione DHT con nodeId: ${this.nodeId}`);
-    this.logger.info(`Indirizzo IP locale: ${this.myIp}`);
+    this.logger.info(`DHTManager inizializzato con nodeId: ${this.nodeId}`);
+  }
 
-    // Aggiungi questo nodo alla DHT
-    this.addNode(this.nodeId, {
-      ip: this.myIp,
-      port: this.myPort,
-      metadata: {
-        isBootstrap: this.config.node?.isBootstrap || false,
-        publicKey: this.config.node?.publicKey,
-        name: this.config.node?.name
-      }
-    });
-
-    // Se ci sono bootstrap nodes, aggiungiamoli
-    if (this.config.p2p?.bootstrapNodes) {
-      for (const node of this.config.p2p.bootstrapNodes) {
-        if (node.host && node.port) {
-          // Generiamo un ID temporaneo per il bootstrap node se non lo conosciamo ancora
-          const tempId = this._hashAddress(`${node.host}:${node.port}`);
-          this.addNode(tempId, {
-            ip: node.host,
-            port: node.port,
-            metadata: {
-              isBootstrap: true
-            }
-          });
-          this.logger.info(`Aggiunto bootstrap node: ${node.host}:${node.port} con ID: ${tempId}`);
-        }
-      }
+  /**
+   * Avvia la DHT con il nodo libp2p
+   */
+  async start(node) {
+    if (!node) {
+      throw new Error('Impossibile avviare la DHT: nodo libp2p mancante');
     }
 
-    this.initialized = true;
+    this.node = node;
+
+    // Inizializza la DHT con il nodeId corrente
+    await this.initialize(this.nodeId);
+
+    this.logger.info('DHTManager avviato con successo');
+    this.isStarted = true;
+
+    // Pubblica il nostro nodeId nella DHT
+    await this.publishNodeId();
+
     return true;
+  }
+
+  /**
+   * Aggiorna il nodeId nella DHT
+   */
+  async updateNodeId(newNodeId) {
+    if (this.nodeId === newNodeId) {
+      this.logger.debug('NodeId già aggiornato, nessuna modifica necessaria');
+      return false;
+    }
+
+    this.logger.info(`Aggiornamento nodeId nella DHT: ${this.nodeId} -> ${newNodeId}`);
+    this.nodeId = newNodeId;
+
+    // Se la DHT è già avviata, pubblica il nuovo nodeId
+    if (this.isStarted && this.node) {
+      await this.publishNodeId();
+    }
+
+    return true;
+  }
+
+  /**
+   * Pubblica il nodeId nella DHT
+   */
+  async publishNodeId() {
+    if (!this.isStarted || !this.node) {
+      this.logger.warn('Impossibile pubblicare nodeId: DHT non avviata');
+      return false;
+    }
+
+    try {
+      this.logger.info(`Pubblicazione nodeId ${this.nodeId} nella DHT...`);
+
+      // Crea la chiave per il nodeId
+      const key = `/drakon/node/${this.nodeId}`;
+
+      // Dati del nodo (indirizzo IP, porta, ecc.)
+      const value = JSON.stringify({
+        id: this.nodeId,
+        addresses: this.node.getMultiaddrs().map(addr => addr.toString()),
+        lastSeen: Date.now()
+      });
+
+      // Pubblica il valore nella DHT
+      await this.node.contentRouting.provide(key);
+
+      this.logger.info(`NodeId ${this.nodeId} pubblicato con successo nella DHT`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Errore nella pubblicazione del nodeId: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Cerca un nodo nella DHT per nodeId
+   */
+  async findNode(nodeId) {
+    if (!this.isStarted || !this.node) {
+      throw new Error('Impossibile cercare nodo: DHT non avviata');
+    }
+
+    try {
+      this.logger.info(`Ricerca nodo con ID ${nodeId} nella DHT...`);
+
+      // Crea la chiave per il nodeId
+      const key = `/drakon/node/${nodeId}`;
+
+      // Cerca il valore nella DHT
+      const providers = await this.node.contentRouting.findProviders(key, { timeout: 5000 });
+
+      if (providers && providers.length > 0) {
+        this.logger.info(`Trovati ${providers.length} provider per il nodo ${nodeId}`);
+        return providers;
+      }
+
+      this.logger.info(`Nessun provider trovato per il nodo ${nodeId}`);
+      return [];
+    } catch (error) {
+      this.logger.error(`Errore nella ricerca del nodo: ${error.message}`);
+      return [];
+    }
   }
 
   /**
@@ -354,12 +421,5 @@ export class DHTManager extends EventEmitter {
    */
   _hashAddress(address) {
     return crypto.createHash('sha256').update(address).digest('hex');
-  }
-
-  async updateNodeId(newNodeId) {
-    if (newNodeId && newNodeId !== this.nodeId) {
-      this.logger.info(`Aggiornamento nodeId da ${this.nodeId} a ${newNodeId}`);
-      this.nodeId = newNodeId;
-    }
   }
 }
