@@ -47,11 +47,37 @@ export class NodeStorage {
         lastUpdated: new Date().toISOString()
       };
 
-      // Assicurati che il PeerId sia sempre una stringa per semplicità
-      if (mergedInfo.peerId && typeof mergedInfo.peerId !== 'string') {
-        // Se è un oggetto, usa il campo id o toString()
-        if (typeof mergedInfo.peerId === 'object') {
-          mergedInfo.peerId = mergedInfo.peerId.id || mergedInfo.peerId.toString();
+      // Gestione speciale del PeerId per preservare le chiavi
+      if (nodeInfo.peerId) {
+        // Se il nuovo PeerId è un oggetto con id, privKey e pubKey, usalo direttamente
+        if (
+          typeof nodeInfo.peerId === 'object' &&
+          nodeInfo.peerId.id &&
+          nodeInfo.peerId.privKey &&
+          nodeInfo.peerId.pubKey
+        ) {
+          this.logger.info(`Salvato PeerId completo con ID: ${nodeInfo.peerId.id}`);
+          mergedInfo.peerId = nodeInfo.peerId;
+        }
+        // Se è solo un ID stringa, mantieni le chiavi esistenti se disponibili
+        else if (typeof nodeInfo.peerId === 'string') {
+          if (
+            existingInfo.peerId &&
+            typeof existingInfo.peerId === 'object' &&
+            existingInfo.peerId.id &&
+            existingInfo.peerId.privKey &&
+            existingInfo.peerId.pubKey
+          ) {
+            this.logger.info(`Mantenute chiavi esistenti per PeerId: ${nodeInfo.peerId}`);
+            mergedInfo.peerId = {
+              ...existingInfo.peerId,
+              id: nodeInfo.peerId // Aggiorna solo l'ID
+            };
+          } else {
+            // Se non ci sono chiavi esistenti, salva solo l'ID
+            mergedInfo.peerId = nodeInfo.peerId;
+            this.logger.warn(`Salvato solo ID del PeerId senza chiavi: ${nodeInfo.peerId}`);
+          }
         }
       }
 

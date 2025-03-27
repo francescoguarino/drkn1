@@ -62,31 +62,97 @@ export class NetworkManager extends EventEmitter {
         if (nodeInfo && nodeInfo.peerId) {
           this.logger.info('Trovato PeerId salvato');
 
-          // Crea un nuovo PeerId
-          peerId = await createEd25519PeerId();
+          // Verifica se il PeerId è un oggetto completo con chiavi
+          if (
+            typeof nodeInfo.peerId === 'object' &&
+            nodeInfo.peerId.id &&
+            nodeInfo.peerId.privKey &&
+            nodeInfo.peerId.pubKey
+          ) {
+            try {
+              this.logger.info(
+                `Tentativo di ricreare PeerId da chiavi salvate con ID: ${nodeInfo.peerId.id}`
+              );
 
-          // Conserva l'ID originale dal PeerId salvato
-          const originalId =
-            typeof nodeInfo.peerId === 'string'
-              ? nodeInfo.peerId
-              : nodeInfo.peerId.id || nodeInfo.peerId.toString();
+              // Converti le chiavi da base64 a Uint8Array
+              const privKey = uint8ArrayFromString(nodeInfo.peerId.privKey, 'base64pad');
+              const pubKey = uint8ArrayFromString(nodeInfo.peerId.pubKey, 'base64pad');
 
-          this.logger.info(`Usando PeerId esistente con ID: ${originalId}`);
+              this.logger.debug(`Lunghezza privKey: ${privKey.byteLength} bytes`);
+              this.logger.debug(`Lunghezza pubKey: ${pubKey.byteLength} bytes`);
 
-          // Sostituisci il metodo toString() per mantenere l'ID originale
-          const originalToString = peerId.toString;
-          peerId.toString = function () {
-            return originalId;
-          };
+              // Tenta di creare un PeerId dalle chiavi salvate
+              try {
+                const peerIdOptions = {
+                  id: nodeInfo.peerId.id,
+                  privateKey: privKey,
+                  publicKey: pubKey
+                };
 
-          // Usa il nodeId salvato
-          if (nodeInfo.nodeId) {
-            this.nodeId = nodeInfo.nodeId;
-            this.logger.info(`Usando nodeId esistente: ${this.nodeId}`);
-          } else if (originalId) {
-            // Se non abbiamo nodeId ma abbiamo PeerId, generiamo nodeId dal PeerId
-            this.nodeId = crypto.createHash('md5').update(originalId).digest('hex');
-            this.logger.info(`Generato nodeId da PeerId: ${this.nodeId}`);
+                this.logger.info('Tentativo di creare PeerId da chiavi salvate con createFromJSON');
+                peerId = await createFromJSON(peerIdOptions);
+                this.logger.info(`PeerId ricreato con successo dalle chiavi: ${peerId.toString()}`);
+              } catch (jsonError) {
+                this.logger.warn(
+                  `Impossibile creare PeerId da createFromJSON: ${jsonError.message}`
+                );
+
+                // Fallback: crea un nuovo PeerId ma mantieni l'ID originale
+                peerId = await createEd25519PeerId();
+
+                // Sostituisci il metodo toString() per mantenere l'ID originale
+                const originalId = nodeInfo.peerId.id;
+                peerId.toString = function () {
+                  return originalId;
+                };
+
+                this.logger.info(`Creato nuovo PeerId con ID originale: ${peerId.toString()}`);
+              }
+
+              // Usa il nodeId salvato
+              if (nodeInfo.nodeId) {
+                this.nodeId = nodeInfo.nodeId;
+                this.logger.info(`Usando nodeId esistente: ${this.nodeId}`);
+              } else {
+                // Se non abbiamo nodeId ma abbiamo PeerId, generiamo nodeId dal PeerId
+                this.nodeId = crypto.createHash('md5').update(originalId).digest('hex');
+                this.logger.info(`Generato nodeId da PeerId: ${this.nodeId}`);
+              }
+            } catch (error) {
+              this.logger.error(`Errore nel caricamento del PeerId dalle chiavi: ${error.message}`);
+              // Fallback a creazione nuovo PeerId
+              peerId = await createEd25519PeerId();
+              this.logger.info(`Creato nuovo PeerId (fallback): ${peerId.toString()}`);
+            }
+          } else {
+            // PeerId è solo un ID stringa senza chiavi
+            const originalId =
+              typeof nodeInfo.peerId === 'string'
+                ? nodeInfo.peerId
+                : nodeInfo.peerId.id || nodeInfo.peerId.toString();
+
+            this.logger.info(`PeerId trovato ma senza chiavi, ID: ${originalId}`);
+
+            // Crea un nuovo PeerId
+            peerId = await createEd25519PeerId();
+
+            // Sostituisci il metodo toString() per mantenere l'ID originale
+            const originalToString = peerId.toString;
+            peerId.toString = function () {
+              return originalId;
+            };
+
+            this.logger.info(`Usando PeerId esistente con ID: ${originalId}`);
+
+            // Usa il nodeId salvato o generane uno nuovo
+            if (nodeInfo.nodeId) {
+              this.nodeId = nodeInfo.nodeId;
+              this.logger.info(`Usando nodeId esistente: ${this.nodeId}`);
+            } else if (originalId) {
+              // Se non abbiamo nodeId ma abbiamo PeerId, generiamo nodeId dal PeerId
+              this.nodeId = crypto.createHash('md5').update(originalId).digest('hex');
+              this.logger.info(`Generato nodeId da PeerId: ${this.nodeId}`);
+            }
           }
         } else {
           // Nessun PeerId trovato, ne creiamo uno nuovo
@@ -104,7 +170,11 @@ export class NetworkManager extends EventEmitter {
         await this.storage.saveNodeInfo({
           ...nodeInfo,
           nodeId: this.nodeId,
-          peerId: peerId.toString(),
+          peerId: {
+            id: peerId.toString(),
+            privKey: uint8ArrayToString(peerId.privateKey, 'base64pad'),
+            pubKey: uint8ArrayToString(peerId.publicKey, 'base64pad')
+          },
           lastUpdated: new Date().toISOString(),
           createdAt: nodeInfo?.createdAt || new Date().toISOString()
         });
