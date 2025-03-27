@@ -27,6 +27,7 @@ export class Node extends EventEmitter {
     this.config = this._validateAndEnrichConfig(config);
     this.logger = new Logger('Node');
     this.storage = new NodeStorage(this.config);
+    this.bannerDisplayed = false; // Flag per tenere traccia se il banner è già stato mostrato
 
     // Debug info
     this.logger.debug(
@@ -194,8 +195,11 @@ export class Node extends EventEmitter {
         // Importante: aggiorna la configurazione prima di mostrare il banner
         this.config.node.id = this.nodeId;
 
-        // Ricarica il banner con l'ID aggiornato
-        displayBanner(this.config);
+        // Mostra il banner solo se non è già stato mostrato
+        if (!this.bannerDisplayed) {
+          displayBanner(this.config);
+          this.bannerDisplayed = true;
+        }
 
         this.createdAt = new Date(savedInfo.createdAt);
         this.lastUpdated = new Date(savedInfo.lastUpdated);
@@ -212,8 +216,11 @@ export class Node extends EventEmitter {
         this.nodeId = crypto.randomBytes(16).toString('hex');
         this.config.node.id = this.nodeId; // Assicurati che l'ID sia coerente in tutta la configurazione
 
-        // Ricarica il banner con l'ID aggiornato
-        displayBanner(this.config);
+        // Mostra il banner solo se non è già stato mostrato
+        if (!this.bannerDisplayed) {
+          displayBanner(this.config);
+          this.bannerDisplayed = true;
+        }
 
         this.createdAt = new Date();
         this.lastUpdated = new Date();

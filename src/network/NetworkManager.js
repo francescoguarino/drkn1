@@ -141,7 +141,8 @@ export class NetworkManager extends EventEmitter {
       // Inizia ad ascoltare
       await this.node.start();
       this.logger.info(`Nodo P2P in ascolto sulla porta ${port}`);
-      this.logger.info(`ID del nodo: ${this.peerId.toString()}`);
+      this.logger.info(`PeerId: ${this.peerId.toString()}`);
+      this.logger.info(`NodeId: ${this.nodeId}`);
       this.logger.info(`Indirizzo IP: ${networkInfo.address}`);
 
       // Imposta gli event handlers

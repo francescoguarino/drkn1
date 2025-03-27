@@ -73,7 +73,8 @@ async function runNode(options = {}) {
     // Avvia il nodo
     await node.start();
 
-    logger.info(`Nodo avviato con successo con ID: ${config.config.node.id}`);
+    // Usa il nodeId dal nodo avviato, che sarà quello corretto e coerente
+    logger.info(`Nodo avviato con successo con ID: ${node.nodeId}`);
     logger.info(`Porta P2P: ${config.config.p2p.port}`);
     logger.info(`Porta API: ${config.config.api.port}`);
 
