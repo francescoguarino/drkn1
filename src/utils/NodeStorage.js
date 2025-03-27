@@ -30,9 +30,29 @@ export class NodeStorage {
         lastUpdated: new Date().toISOString()
       };
 
+      // Se non esiste la data di creazione, aggiungila
+      if (!data.createdAt) {
+        data.createdAt = new Date().toISOString();
+      }
+
       // Assicurati che il peerId rimanga intatto se non viene fornito un nuovo valore
       if (nodeInfo.peerId) {
-        data.peerId = nodeInfo.peerId;
+        // Verifica e formatta correttamente il peerId
+        if (typeof nodeInfo.peerId === 'object' && nodeInfo.peerId.id) {
+          // Se è un oggetto completo con id, privKey e pubKey, salvalo così com'è
+          data.peerId = nodeInfo.peerId;
+          this.logger.debug(`Salvato peerId come oggetto completo: ${nodeInfo.peerId.id}`);
+        } else if (typeof nodeInfo.peerId === 'string' && nodeInfo.peerId.startsWith('12D3KooW')) {
+          // Se è una stringa che rappresenta l'ID del peer, salvala così
+          data.peerId = nodeInfo.peerId;
+          this.logger.debug(`Salvato peerId come stringa: ${nodeInfo.peerId}`);
+        } else {
+          this.logger.warn(`Formato peerId non valido, mantengo il valore esistente`);
+          // Mantieni il valore esistente se presente
+          if (existingInfo.peerId) {
+            data.peerId = existingInfo.peerId;
+          }
+        }
       } else if (existingInfo.peerId) {
         data.peerId = existingInfo.peerId;
       }
@@ -44,6 +64,7 @@ export class NodeStorage {
         data.nodeId = existingInfo.nodeId;
       }
 
+      // Scrivi il file con formattazione JSON
       fs.writeFileSync(this.nodeInfoFile, JSON.stringify(data, null, 2));
       this.logger.info(`Informazioni del nodo salvate con successo`);
       return true;
@@ -64,10 +85,32 @@ export class NodeStorage {
 
       const data = JSON.parse(fs.readFileSync(this.nodeInfoFile, 'utf8'));
 
-      // Verifica che tutte le informazioni necessarie siano presenti
-      if (!data.nodeId || !data.peerId || !data.walletAddress) {
-        this.logger.warn('Informazioni del nodo incomplete, verranno ricreate');
+      // Verifica che almeno l'ID del nodo sia presente
+      if (!data.nodeId) {
+        this.logger.warn('ID del nodo mancante nelle informazioni salvate, verranno ricreate');
         return null;
+      }
+
+      // Se il peerId è presente, verifica che sia in un formato valido
+      if (data.peerId) {
+        // Verifica se è una stringa che inizia con 12D3KooW (ID di un peer libp2p)
+        if (typeof data.peerId === 'string' && data.peerId.startsWith('12D3KooW')) {
+          this.logger.info(`PeerId trovato in formato stringa: ${data.peerId}`);
+          // È un formato valido, lo lasciamo come stringa
+        }
+        // Se è un oggetto, verifica che abbia tutte le proprietà necessarie
+        else if (typeof data.peerId === 'object' && data.peerId.id) {
+          this.logger.info(`PeerId trovato in formato oggetto con ID: ${data.peerId.id}`);
+          // È un formato valido, mantieni l'oggetto
+        }
+        // Altrimenti, è un formato non valido
+        else {
+          this.logger.warn('Formato del PeerId non valido, verrà rigenerato');
+          // Rimuovi il peerId non valido
+          delete data.peerId;
+        }
+      } else {
+        this.logger.info('PeerId non trovato nelle informazioni salvate, verrà creato');
       }
 
       this.logger.info(`Informazioni del nodo caricate con successo`);
