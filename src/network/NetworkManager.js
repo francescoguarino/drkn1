@@ -245,41 +245,46 @@ export class NetworkManager extends EventEmitter {
           this.logger.info(`Trovato PeerId in formato stringa: ${savedInfo.peerId}`);
           this.logger.info(`RIUTILIZZO il PeerId esistente senza generare nuove chiavi`);
 
-          // In questo caso NON creiamo un nuovo PeerId, ma usiamo quello esistente
-          // Il sistema userà il PeerId salvato senza sovrascriverlo
-
-          // Creiamo un PeerId deterministico basato sull'ID esistente
-          // Questo garantisce che usiamo sempre lo stesso PeerId
-          const seed = crypto.createHash('sha256').update(savedInfo.peerId).digest();
-
           try {
-            const peerId = await createEd25519PeerId({ seed });
+            // Invece di usare un seed per generare un nuovo PeerId, creiamo un PeerId con il mateix ID
+            // Questo approccio crea un PeerId con nuove chiavi ma preserva lo stesso ID
 
-            if (peerId.toString() !== savedInfo.peerId) {
-              this.logger.warn(
-                `Il PeerId generato ${peerId.toString()} è diverso da quello salvato ${
-                  savedInfo.peerId
-                }`
-              );
-              this.logger.info(`Mantengo il PeerId esistente: ${savedInfo.peerId}`);
-            }
+            // Prima creiamo un PeerId temporaneo per ottenere chiavi valide
+            const tempPeerId = await createEd25519PeerId();
 
-            // Esporta le chiavi per salvarle
+            // Usiamo queste chiavi ma con l'ID originale
+            const peerIdStr = savedInfo.peerId;
+
+            // Creiamo un oggetto PeerId esportabile con l'ID originale ma nuove chiavi
             const peerIdExport = {
-              id: savedInfo.peerId, // Mantieni l'ID originale
-              privKey: uint8ArrayToString(peerId.privateKey, 'base64pad'),
-              pubKey: uint8ArrayToString(peerId.publicKey, 'base64pad')
+              id: peerIdStr,
+              privKey: uint8ArrayToString(tempPeerId.privateKey, 'base64pad'),
+              pubKey: uint8ArrayToString(tempPeerId.publicKey, 'base64pad')
             };
 
-            // Aggiorna solo il formato, non l'ID
+            // Lo salviamo per uso futuro
             await this.storage.saveNodeInfo({
               ...savedInfo,
-              peerId: peerIdExport // Salva il PeerId completo per uso futuro
+              peerId: peerIdExport
             });
 
+            // Ora creiamo un PeerId usando direttamente l'oggetto esportato
+            const peerId = await createFromJSON(peerIdExport);
+
+            // Verifichiamo che l'ID sia quello originale
+            if (peerId.toString() !== peerIdStr) {
+              this.logger.error(
+                `ERRORE CRITICO: l'ID generato ${peerId.toString()} non corrisponde all'originale ${peerIdStr}`
+              );
+              throw new Error("Impossibile preservare l'ID originale");
+            }
+
+            this.logger.info(`PeerId esistente caricato con successo: ${peerId.toString()}`);
             return peerId;
           } catch (error) {
             this.logger.error(`Errore nel riutilizzo del PeerId: ${error.message}`);
+            this.logger.warn('Sarà necessario generare un nuovo PeerId');
+            return await this._createNewPeerId();
           }
         }
       }
