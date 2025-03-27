@@ -49,22 +49,70 @@ export class APIServer {
       // Middleware per la gestione degli errori
       this.setupErrorHandling();
 
-      // Avvia il server
-      const port = this.config.api?.port || 3000;
+      // Imposta i parametri iniziali
+      let port = this.config.api?.port || 3000;
       const host = this.config.api?.host || '0.0.0.0';
 
-      return new Promise((resolve, reject) => {
-        this.server = this.app.listen(port, host, () => {
-          this.isRunning = true;
-          this.logger.info(`API Server in ascolto su ${host}:${port}`);
-          resolve();
-        });
+      // Parametri per i tentativi multipli
+      const maxAttempts = 5;
+      let attemptCount = 0;
+      let success = false;
 
-        this.server.on('error', error => {
-          this.logger.error(`Errore nell'avvio del server API: ${error.message}`);
-          reject(error);
-        });
-      });
+      // Tenta di avviare il server su porte diverse se necessario
+      while (!success && attemptCount < maxAttempts) {
+        attemptCount++;
+        this.logger.info(
+          `Tentativo ${attemptCount}/${maxAttempts} di avvio API Server sulla porta ${port}`
+        );
+
+        try {
+          // Tenta di avviare il server sulla porta corrente
+          await new Promise((resolve, reject) => {
+            this.server = this.app.listen(port, host, () => {
+              success = true;
+              this.isRunning = true;
+
+              // Aggiorna la porta nella configurazione
+              if (this.config.api) {
+                this.config.api.port = port;
+              }
+
+              this.logger.info(`API Server in ascolto su ${host}:${port}`);
+              resolve();
+            });
+
+            this.server.on('error', error => {
+              if (error.code === 'EADDRINUSE') {
+                // La porta è già in uso, chiudi il server e riprova con una porta diversa
+                this.logger.warn(`Porta ${port} già in uso, tentativo con porta alternativa`);
+                this.server.close();
+
+                // Genera una nuova porta casuale tra 7000 e 9000
+                port = Math.floor(Math.random() * 2000) + 7000;
+                reject(new Error('Porta già in uso'));
+              } else {
+                // Altro tipo di errore, rilancia
+                this.logger.error(`Errore nell'avvio del server API: ${error.message}`);
+                reject(error);
+              }
+            });
+          });
+
+          // Se arriviamo qui, il server è stato avviato con successo
+          return;
+        } catch (error) {
+          if (error.message !== 'Porta già in uso') {
+            // Se è un errore diverso da "porta già in uso", rilancia
+            throw error;
+          }
+          // Altrimenti continua il ciclo e riprova con la nuova porta
+        }
+      }
+
+      // Se arriviamo qui dopo tutti i tentativi, è impossibile avviare il server
+      if (!success) {
+        throw new Error(`Impossibile avviare il server API dopo ${maxAttempts} tentativi`);
+      }
     } catch (error) {
       this.logger.error(`Errore nell'inizializzazione del server API: ${error.message}`);
       throw error;

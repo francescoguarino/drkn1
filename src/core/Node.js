@@ -200,6 +200,18 @@ export class Node extends EventEmitter {
         // Importante: aggiorna la configurazione
         this.config.node.id = this.nodeId;
 
+        // Carica anche le porte, se disponibili
+        if (savedInfo.p2pPort) {
+          this.logger.info(`Usando porta P2P salvata: ${savedInfo.p2pPort}`);
+          this.config.p2p.port = savedInfo.p2pPort;
+        }
+
+        if (savedInfo.apiPort) {
+          this.logger.info(`Usando porta API salvata: ${savedInfo.apiPort}`);
+          if (!this.config.api) this.config.api = {};
+          this.config.api.port = savedInfo.apiPort;
+        }
+
         this.createdAt = new Date(savedInfo.createdAt);
         this.lastUpdated = new Date(savedInfo.lastUpdated);
 
@@ -258,8 +270,17 @@ export class Node extends EventEmitter {
       // Inizializza il sync manager
       await this.syncManager.start();
 
-      // Avvia l'API server
-      await this.apiServer.start();
+      // Avvia il server API
+      if (this.config.api?.enabled !== false) {
+        await this.apiServer.start();
+
+        // Salva la porta API nelle informazioni del nodo
+        if (this.config.api?.port) {
+          await this.storage.saveNodeInfo({
+            apiPort: this.config.api.port
+          });
+        }
+      }
 
       // Salva le informazioni del nodo
       const nodeInfo = {
