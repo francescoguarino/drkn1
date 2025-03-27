@@ -46,12 +46,20 @@ export class NetworkManager extends EventEmitter {
     try {
       this.logger.info('Avvio del NetworkManager...');
 
+      // Usa il nodeId già definito in Node
+      if (!this.nodeId) {
+        this.logger.warn(
+          'NetworkManager inizializzato senza nodeId, usando quello dalla configurazione'
+        );
+        this.nodeId = this.config.node.id;
+      }
+      this.logger.info(`Utilizzo nodeId: ${this.nodeId}`);
+
       // Crea o carica un PeerId persistente
       this.peerId = await this._loadOrCreatePeerId();
 
-      // Inizializza la DHT con il nodeId derivato dal PeerId
-      const nodeId = crypto.createHash('sha256').update(this.peerId.toString()).digest('hex');
-      await this.dht.initialize(nodeId);
+      // Inizializza la DHT con il nodeId
+      await this.dht.initialize(this.nodeId);
 
       // Ottieni informazioni di rete
       const networkInfo = await this._getNetworkInfo();
@@ -167,38 +175,17 @@ export class NetworkManager extends EventEmitter {
         this.logger.info('Caricamento PeerId esistente...');
 
         try {
-          // Salva il PeerId come stringa per poterlo usare in caso di fallimento della deserializzazione
-          const peerIdStr = savedInfo.peerId.id || savedInfo.peerId;
-
-          // Verifica se abbiamo un oggetto JSON o una stringa
+          // Tenta di creare il PeerId dal JSON salvato
           let peerId;
           if (typeof savedInfo.peerId === 'object') {
-            // Tenta di creare il PeerId dal JSON
             peerId = await createFromJSON(savedInfo.peerId);
           } else {
-            // Se è una stringa, cerca di importare direttamente
-            this.logger.warn('PeerId salvato come stringa, tentativo di importazione diretta');
-            // In questo caso dovremmo cercare di importare da stringa, ma per semplicità creiamo un nuovo PeerId
-            peerId = await createEd25519PeerId();
-          }
-
-          // Verifica che il nodeId corrisponda
-          const peerIdString = peerId.toString();
-          const expectedNodeId = crypto.createHash('sha256').update(peerIdString).digest('hex');
-
-          this.logger.info(`PeerId: ${peerIdString}`);
-          this.logger.info(`NodeId calcolato: ${expectedNodeId}`);
-          this.logger.info(`NodeId salvato: ${savedInfo.nodeId}`);
-
-          if (expectedNodeId !== savedInfo.nodeId) {
-            this.logger.warn(
-              'NodeId non corrisponde al PeerId salvato, ricreazione delle informazioni'
-            );
+            // Se è una stringa o altro formato, crea un nuovo PeerId
+            this.logger.warn('Formato PeerId non supportato, creazione nuovo PeerId');
             return await this._createNewPeerId();
           }
 
-          this.nodeId = savedInfo.nodeId;
-          this.logger.info(`PeerId esistente caricato: ${peerIdString}`);
+          this.logger.info(`PeerId esistente caricato: ${peerId.toString()}`);
           return peerId;
         } catch (error) {
           this.logger.error(`Errore nel caricamento del PeerId salvato: ${error.message}`);
@@ -216,35 +203,23 @@ export class NetworkManager extends EventEmitter {
   async _createNewPeerId() {
     try {
       this.logger.info('Creazione nuovo PeerId...');
-      const peerId = await createEd25519PeerId();
 
-      // Generiamo il nodeId dal PeerId
-      this.nodeId = crypto.createHash('sha256').update(peerId.toString()).digest('hex');
+      // Crea un nuovo PeerId usando il nodeId come seed se possibile
+      let seed;
+      if (this.nodeId) {
+        seed = crypto.createHash('sha256').update(this.nodeId).digest();
+      }
 
-      // Salviamo tutte le informazioni del nodo
-      const nodeInfo = {
-        nodeId: this.nodeId,
-        peerId: peerId.toJSON(),
-        walletAddress: this.config.wallet?.address || '',
-        createdAt: new Date().toISOString(),
-        lastUpdated: new Date().toISOString(),
-        network: this.config.node?.network || 'private',
-        p2pPort: this.config.p2p?.port || 6001,
-        apiPort: this.config.api?.port || 3000,
-        mining: {
-          enabled: this.config.mining?.enabled || false,
-          maxWorkers: this.config.mining?.maxWorkers || 1,
-          targetBlockTime: this.config.mining?.targetBlockTime || 10
-        }
-      };
+      const peerId = await createEd25519PeerId(seed ? { seed } : undefined);
+      this.logger.info(`Nuovo PeerId creato: ${peerId.toString()}`);
 
-      await this.storage.saveNodeInfo(nodeInfo);
-      this.logger.info(`Nuovo PeerId creato e salvato: ${peerId.toString()}`);
-      this.logger.info(`NodeId generato: ${this.nodeId}`);
       return peerId;
     } catch (error) {
       this.logger.error(`Errore nella creazione del PeerId: ${error.message}`);
-      throw error;
+      // Fallback: crea un PeerId senza seed
+      const peerId = await createEd25519PeerId();
+      this.logger.info(`PeerId fallback creato: ${peerId.toString()}`);
+      return peerId;
     }
   }
 

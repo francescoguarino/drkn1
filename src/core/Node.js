@@ -15,6 +15,7 @@ import { APIServer } from '../api/server.js';
 import { NodeStorage } from '../utils/NodeStorage.js';
 import crypto from 'crypto';
 import path from 'path';
+import { DHTManager } from '../network/DHTManager.js';
 
 export class Node extends EventEmitter {
   constructor(config) {
@@ -182,23 +183,37 @@ export class Node extends EventEmitter {
       // Carica le informazioni esistenti
       const savedInfo = await this.storage.loadNodeInfo();
 
-      if (savedInfo) {
+      if (savedInfo && savedInfo.nodeId) {
         this.logger.info(`Caricate informazioni del nodo esistenti con ID: ${savedInfo.nodeId}`);
         // Usa le informazioni salvate
         this.nodeId = savedInfo.nodeId;
-        this.config.node.id = savedInfo.nodeId; // Aggiorna l'ID nella configurazione
+        this.config.node.id = this.nodeId; // Assicurati che l'ID sia coerente in tutta la configurazione
         this.createdAt = new Date(savedInfo.createdAt);
         this.lastUpdated = new Date(savedInfo.lastUpdated);
+
+        // Se c'è un PeerId salvato, assicurati di usare quello
+        if (savedInfo.peerId) {
+          this.config.peerId = savedInfo.peerId;
+        }
       } else {
         this.logger.info(
           'Nessuna informazione del nodo trovata, verranno create nuove informazioni'
         );
-        // Genera un nuovo nodeId
+        // Genera un nuovo nodeId una sola volta
         this.nodeId = crypto.randomBytes(16).toString('hex');
-        this.config.node.id = this.nodeId; // Aggiorna l'ID nella configurazione
+        this.config.node.id = this.nodeId; // Assicurati che l'ID sia coerente in tutta la configurazione
         this.createdAt = new Date();
         this.lastUpdated = new Date();
       }
+
+      // Passa il nodeId alla DHT prima di inizializzarla
+      this.dht = new DHTManager({
+        ...this.config,
+        node: {
+          ...this.config.node,
+          id: this.nodeId
+        }
+      });
 
       // Inizializza il database blockchain
       await this.blockchainDB.init();
@@ -209,15 +224,11 @@ export class Node extends EventEmitter {
       // Inizializza il wallet
       await this.wallet.init();
 
+      // Aggiorna il NetworkManager per usare il nodeId già generato
+      this.networkManager.nodeId = this.nodeId;
+
       // Inizializza il network manager
       await this.networkManager.start();
-
-      // Aggiorna il nodeId con quello generato dal NetworkManager
-      this.nodeId = this.networkManager.nodeId;
-      this.config.node.id = this.nodeId; // Aggiorna l'ID nella configurazione
-
-      // Aggiorna la DHT con il nodeId corretto
-      await this.networkManager.dht.updateNodeId(this.nodeId);
 
       // Inizializza il gossip manager
       await this.gossipManager.start();
@@ -228,33 +239,24 @@ export class Node extends EventEmitter {
       // Avvia l'API server
       await this.apiServer.start();
 
-      // Aggiorna solo lastUpdated se le informazioni esistono già
-      if (savedInfo) {
-        const nodeInfo = {
-          ...savedInfo,
-          nodeId: this.nodeId, // Assicurati di usare il nodeId aggiornato
-          lastUpdated: new Date().toISOString()
-        };
-        await this.storage.saveNodeInfo(nodeInfo);
-      } else {
-        // Salva nuove informazioni solo se non esistono
-        const nodeInfo = {
-          nodeId: this.nodeId,
-          walletAddress: this.wallet.address,
-          createdAt: this.createdAt.toISOString(),
-          lastUpdated: new Date().toISOString(),
-          network: this.config.node.network,
-          p2pPort: this.config.p2p.port,
-          apiPort: this.config.api.port,
-          mining: {
-            enabled: this.config.mining.enabled,
-            maxWorkers: this.config.mining.maxWorkers,
-            targetBlockTime: this.config.mining.targetBlockTime
-          }
-        };
-        await this.storage.saveNodeInfo(nodeInfo);
-      }
+      // Salva le informazioni del nodo
+      const nodeInfo = {
+        nodeId: this.nodeId,
+        peerId: this.networkManager.peerId ? this.networkManager.peerId.toJSON() : null,
+        walletAddress: this.wallet.address,
+        createdAt: this.createdAt.toISOString(),
+        lastUpdated: new Date().toISOString(),
+        network: this.config.node.network,
+        p2pPort: this.config.p2p.port,
+        apiPort: this.config.api.port,
+        mining: {
+          enabled: this.config.mining.enabled,
+          maxWorkers: this.config.mining.maxWorkers,
+          targetBlockTime: this.config.mining.targetBlockTime
+        }
+      };
 
+      await this.storage.saveNodeInfo(nodeInfo);
       this.logger.info('Nodo Drakon avviato con successo');
     } catch (error) {
       this.logger.error("Errore durante l'avvio del nodo:", error);

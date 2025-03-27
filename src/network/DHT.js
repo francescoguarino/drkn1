@@ -12,7 +12,7 @@ export class DHTManager extends EventEmitter {
     super();
     this.config = config || {};
     this.logger = new Logger('DHT');
-    this.nodeId = config.node?.id || this._generateNodeId();
+    this.nodeId = null; // Inizializzato a null, sarà impostato in initialize()
     this.routingTable = new Map(); // peerId -> {ip, port, lastSeen, metadata}
     this.buckets = Array(160)
       .fill()
@@ -27,7 +27,18 @@ export class DHTManager extends EventEmitter {
   /**
    * Inizializza la DHT
    */
-  async initialize() {
+  async initialize(nodeId) {
+    // Usa il nodeId fornito, se presente
+    if (nodeId) {
+      this.nodeId = nodeId;
+    } else if (this.config.node?.id) {
+      this.nodeId = this.config.node.id;
+    } else {
+      // Solo come fallback generiamo un nuovo ID
+      this.nodeId = this._generateNodeId();
+      this.logger.warn('Nessun nodeId fornito, generato nuovo ID: ' + this.nodeId);
+    }
+
     this.logger.info(`Inizializzazione DHT con nodeId: ${this.nodeId}`);
     this.logger.info(`Indirizzo IP locale: ${this.myIp}`);
 
@@ -60,6 +71,7 @@ export class DHTManager extends EventEmitter {
       }
     }
 
+    this.initialized = true;
     return true;
   }
 
