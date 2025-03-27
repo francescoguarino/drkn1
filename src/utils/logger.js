@@ -1,7 +1,7 @@
 import winston from 'winston';
 import path from 'path';
 import os from 'os';
-import fs from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 
 const { createLogger, format, transports } = winston;
 const { combine, timestamp, printf, colorize } = format;
@@ -33,10 +33,14 @@ export class Logger {
       ]
     });
 
+    this.options = {
+      writeToFile: false // Per ora disabilitiamo la scrittura su file
+    };
+
     // Aggiungi i file transport solo se la directory esiste
     try {
-      if (!fs.existsSync(defaultLogDir)) {
-        fs.mkdirSync(defaultLogDir, { recursive: true });
+      if (!existsSync(defaultLogDir)) {
+        mkdirSync(defaultLogDir, { recursive: true });
       }
 
       this.logger.add(
@@ -60,9 +64,20 @@ export class Logger {
     this.logger.info(message);
   }
 
-  error(message, error) {
-    const errorMessage = error ? `${message}: ${error.message}` : message;
-    this.logger.error(errorMessage);
+  error(message, ...args) {
+    const logEntry = this._formatLogEntry('error', message, args);
+
+    // Se args[0] è un Error, stampa anche lo stack
+    if (args.length > 0 && args[0] instanceof Error) {
+      console.error(logEntry, args[0].stack);
+    } else {
+      console.error(logEntry);
+    }
+
+    // Scrivi nel file se abilitato
+    if (this.options.writeToFile) {
+      this._writeToFile(logEntry);
+    }
   }
 
   warn(message) {
@@ -71,5 +86,39 @@ export class Logger {
 
   debug(message) {
     this.logger.debug(message);
+  }
+
+  _formatLogEntry(level, message, args) {
+    // Formatta il messaggio
+    let formattedMessage = message;
+
+    // Se ci sono argomenti, prova a formattarli
+    if (args && args.length > 0) {
+      if (args[0] instanceof Error) {
+        formattedMessage = `${message}: ${args[0].message}`;
+      } else {
+        try {
+          const formattedArgs = args
+            .map(arg => {
+              if (typeof arg === 'object') {
+                return JSON.stringify(arg);
+              }
+              return String(arg);
+            })
+            .join(' ');
+          formattedMessage = `${message} ${formattedArgs}`;
+        } catch (e) {
+          formattedMessage = `${message} [Errore nella formattazione degli argomenti: ${e.message}]`;
+        }
+      }
+    }
+
+    return formattedMessage;
+  }
+
+  // Funzione per scrivere il log su file
+  _writeToFile(message) {
+    // Questa funzione è uno stub e non fa niente
+    // perché abbiamo disabilitato la scrittura su file
   }
 }
