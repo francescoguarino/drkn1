@@ -302,12 +302,42 @@ export class NetworkManager extends EventEmitter {
       this._setupDHTMaintenance();
 
       this.logger.info('NetworkManager avviato con successo');
+
+      // Stampa la tabella riassuntiva
+      this._printSummaryTable();
+
       return true;
     } catch (error) {
       this.logger.error(`Errore nell'avvio del NetworkManager: ${error.message}`);
       this.logger.error(error.stack);
       throw error;
     }
+  }
+
+  _printSummaryTable() {
+    const connectedPeers = Array.from(this.peers).map(peer => ({
+      id: peer.id,
+      status: 'Connected'
+    }));
+
+    const table = `
+╔════════════════════════════════════════════════════════════════════════════╗
+║ Riepilogo Nodo                                                           ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║ ID Nodo: ${this.nodeId}                                                    ║
+║ Peer ID: ${this.peerId?.toString() || 'Non disponibile'}                   ║
+║ Porta P2P: ${this.p2pPort}                                                 ║
+║ Porta API: ${this.config.api?.port || 'Non configurata'}                   ║
+║ Network Type: ${this.networkType}                                          ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║ Peer Connessi: ${connectedPeers.length}                                     ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║ Lista Peer Connessi:                                                      ║
+${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
+╚════════════════════════════════════════════════════════════════════════════╝
+`;
+
+    this.logger.info(table);
   }
 
   async _createNewPeerId() {
