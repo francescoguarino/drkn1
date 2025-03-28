@@ -88,7 +88,7 @@ export class NodeStorage {
 
       // Salva le informazioni
       await fs.writeFile(this.nodeInfoPath, JSON.stringify(mergedInfo, null, 2));
-      this.logger.info(`Informazioni del nodo salvate con successo in ${this.nodeInfoPath}`);
+      this.logger.debug(`Informazioni del nodo salvate con successo in ${this.nodeInfoPath}`);
       this.logger.debug(`NodeInfo salvato: ${JSON.stringify(mergedInfo, null, 2)}`);
 
       return true;
@@ -121,18 +121,18 @@ export class NodeStorage {
         throw new Error('Formato dati non valido');
       }
 
-      this.logger.info(`Informazioni del nodo caricate con successo da ${this.nodeInfoPath}`);
+      this.logger.debug(`Informazioni del nodo caricate con successo da ${this.nodeInfoPath}`);
 
       // Log dei dati caricati
       if (nodeInfo.nodeId) {
-        this.logger.info(`NodeId caricato: ${nodeInfo.nodeId}`);
+        this.logger.debug(`NodeId caricato: ${nodeInfo.nodeId}`);
       }
 
       if (nodeInfo.peerId) {
         if (typeof nodeInfo.peerId === 'string') {
-          this.logger.info(`PeerId caricato (stringa): ${nodeInfo.peerId}`);
+          this.logger.debug(`PeerId caricato (stringa): ${nodeInfo.peerId}`);
         } else if (typeof nodeInfo.peerId === 'object') {
-          this.logger.info(
+          this.logger.debug(
             `PeerId caricato (oggetto): ${nodeInfo.peerId.id || JSON.stringify(nodeInfo.peerId)}`
           );
         }

@@ -36,7 +36,7 @@ export class NetworkManager extends EventEmitter {
       networkType: null
     };
     this.networkType = config.network.type || 'normal';
-    this.p2pPort = parseInt(process.env.P2P_PORT) || config.network.p2pPort || 10333;
+    this.p2pPort = parseInt(process.env.P2P_PORT) || config.network.port || config.p2p.port || 6001;
     this.running = false;
   }
 
@@ -230,7 +230,7 @@ export class NetworkManager extends EventEmitter {
           if (error.message.includes('could not listen') || error.code === 'EADDRINUSE') {
             this.logger.warn(`Porta ${port} occupata, tentativo con porta alternativa...`);
             // Prova con una porta casuale tra 10000 e 65000
-              port = Math.floor(Math.random() * 55000) + 10000;
+            port = Math.floor(Math.random() * 55000) + 10000;
           } else {
             // Se l'errore è di altro tipo, rilancia l'eccezione
             this.logger.error(`Errore imprevisto nella creazione del nodo: ${error.message}`);
@@ -385,10 +385,10 @@ export class NetworkManager extends EventEmitter {
       let successCount = 0;
 
       for (const peerId of this.peers) {
-          try {
+        try {
           await this.sendMessage(peerId, message);
           successCount++;
-          } catch (error) {
+        } catch (error) {
           this.logger.warn(`Errore nell'invio del messaggio a ${peerId}: ${error.message}`);
         }
       }
@@ -626,12 +626,12 @@ export class NetworkManager extends EventEmitter {
       for (const node of staticBootstrapNodes) {
         // Verifica se il nodo non è il nodo corrente
         if (node.id !== this.peerId.id) {
-        // Formato completo
-        bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
-        // Formato DNS (può funzionare meglio in alcune configurazioni di rete)
-        bootstrapNodes.push(`/dns4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
-        // Formato semplice (utile per alcuni casi)
-        bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}`);
+          // Formato completo
+          bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
+          // Formato DNS (può funzionare meglio in alcune configurazioni di rete)
+          bootstrapNodes.push(`/dns4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
+          // Formato semplice (utile per alcuni casi)
+          bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}`);
         }
       }
 
@@ -647,11 +647,11 @@ export class NetworkManager extends EventEmitter {
           } else if (node.host && node.port) {
             // Verifica se non è il nodo corrente
             if (node.id !== this.peerId.id) {
-            const nodeAddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id || 'QmBootstrap'}`;
-            // Verifica se l'indirizzo è già presente
-            if (!bootstrapNodes.includes(nodeAddr)) {
-              bootstrapNodes.push(nodeAddr);
-            }
+              const nodeAddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id || 'QmBootstrap'}`;
+              // Verifica se l'indirizzo è già presente
+              if (!bootstrapNodes.includes(nodeAddr)) {
+                bootstrapNodes.push(nodeAddr);
+              }
             }
           }
         }
@@ -1213,7 +1213,7 @@ export class NetworkManager extends EventEmitter {
    * @param {string} peerId - ID del peer da disconnettere
    */
   async _disconnectPeer(peerId) {
-      try {
+    try {
       if (this.peers.has(peerId)) {
         this.logger.info(`Disconnessione dal peer: ${peerId}`);
         await this.node.hangUp(peerId);
@@ -1223,7 +1223,7 @@ export class NetworkManager extends EventEmitter {
         return true;
       }
       return false;
-      } catch (error) {
+    } catch (error) {
       this.logger.error(`Errore nella disconnessione dal peer ${peerId}: ${error.message}`);
       return false;
     }
