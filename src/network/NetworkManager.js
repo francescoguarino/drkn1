@@ -952,68 +952,32 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
         }
       }
 
-      this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} bootstrap nodes`);
+      this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} peer bootstrap...`);
 
-      // Converti i bootstrap nodes in formato libp2p
-      const bootstrapAddresses = bootstrapNodes.map(node => {
-        return {
-          id: node.id,
-          multiaddrs: [
-            `/ip4/${node.host}/tcp/${node.port}`,
-            `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`,
-            `/dns4/${node.host}/tcp/${node.port}/p2p/${node.id}`
-          ]
-        };
-      });
-
-      // Aggiungi i nodi al peerStore
-      for (const addr of bootstrapAddresses) {
-        try {
-          if (
-            this.node.peerStore.addressBook &&
-            typeof this.node.peerStore.addressBook.add === 'function'
-          ) {
-            await this.node.peerStore.addressBook.add(addr.id, addr.multiaddrs);
-            this.logger.debug(
-              `Indirizzo aggiunto al peerStore: ${addr.id} -> ${addr.multiaddrs.join(', ')}`
-            );
-          }
-        } catch (error) {
-          this.logger.warn(
-            `Errore nell'aggiunta dell'indirizzo al peerStore per ${addr.id}:`,
-            error.message
-          );
-        }
-      }
-
-      // Tenta la connessione con un ritardo tra i tentativi
       let connectedCount = 0;
-      for (const addr of bootstrapAddresses) {
+      for (const node of bootstrapNodes) {
         try {
-          if (typeof this.node.dial === 'function') {
-            this.logger.info(`Tentativo di connessione al bootstrap node: ${addr.id}`);
-            await this.node.dial(addr.id);
-            this.logger.info(`Connesso al bootstrap node: ${addr.id}`);
-            connectedCount++;
+          this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id}`);
 
-            // Aggiungi un piccolo ritardo tra le connessioni
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
+          // Aggiungi un piccolo ritardo tra i tentativi
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          await this.node.dial(node.id);
+          this.logger.info(`Connesso al bootstrap node: ${node.id}`);
+          connectedCount++;
         } catch (error) {
           this.logger.warn(
-            `Non è stato possibile connettersi al bootstrap node: ${addr.id}`,
+            `Non è stato possibile connettersi al bootstrap node: ${node.id}`,
             error.message
           );
         }
       }
 
-      this.logger.info(
-        `Connesso a ${connectedCount} di ${bootstrapAddresses.length} bootstrap nodes`
-      );
+      this.logger.info(`Connesso a ${connectedCount} di ${bootstrapNodes.length} peer bootstrap`);
 
       if (connectedCount === 0) {
         this.logger.warn(
-          'Non è stato possibile connettersi a nessun bootstrap node. Proverò a rimanere in ascolto per connessioni in entrata.'
+          'Impossibile connettersi a nessun peer bootstrap, funzionamento in modalità isolata'
         );
       }
     } catch (error) {
@@ -1425,35 +1389,72 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
    */
   async _connectToBootstrapPeers() {
     try {
-      const bootstrapPeers = this.config.network.bootstrapPeers || [];
+      // Array dei nostri bootstrap nodes fissi
+      const staticBootstrapNodes = [
+        {
+          host: '51.89.148.92',
+          port: 6001,
+          id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
+        },
+        {
+          host: '135.125.232.233',
+          port: 6001,
+          id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
+        }
+      ];
 
-      if (bootstrapPeers.length === 0) {
+      // Ottieni array di bootstrap nodes dalla configurazione o usa i nodi fissi
+      let bootstrapNodes = [...staticBootstrapNodes];
+
+      // Verifica che config.p2p.bootstrapNodes esista e aggiungi quei nodi
+      if (
+        this.config.p2p &&
+        this.config.p2p.bootstrapNodes &&
+        Array.isArray(this.config.p2p.bootstrapNodes)
+      ) {
+        // Aggiungi i nodi della configurazione ai nodi fissi
+        for (const node of this.config.p2p.bootstrapNodes) {
+          // Evita duplicati e il nodo corrente
+          const isDuplicate = bootstrapNodes.some(
+            existing => existing.host === node.host && existing.port === node.port
+          );
+          const isSelf = node.id === this.peerId.id;
+
+          if (!isDuplicate && !isSelf) {
+            bootstrapNodes.push(node);
+          }
+        }
+      }
+
+      if (bootstrapNodes.length === 0) {
         this.logger.warn('Nessun peer bootstrap configurato, funzionamento in modalità standalone');
         return;
       }
 
-      this.logger.info(`Tentativo di connessione a ${bootstrapPeers.length} peer bootstrap...`);
+      this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} peer bootstrap...`);
 
-      const connectionPromises = bootstrapPeers.map(async peer => {
+      let connectedCount = 0;
+      for (const node of bootstrapNodes) {
         try {
-          this.logger.info(`Connessione al peer bootstrap: ${peer}`);
-          await this.node.dial(peer);
-          this.logger.info(`Connesso al peer bootstrap: ${peer}`);
-          return { peer, success: true };
+          this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id}`);
+
+          // Aggiungi un piccolo ritardo tra i tentativi
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          await this.node.dial(node.id);
+          this.logger.info(`Connesso al bootstrap node: ${node.id}`);
+          connectedCount++;
         } catch (error) {
-          this.logger.warn(`Impossibile connettersi al peer bootstrap ${peer}: ${error.message}`);
-          return { peer, success: false, error: error.message };
+          this.logger.warn(
+            `Non è stato possibile connettersi al bootstrap node: ${node.id}`,
+            error.message
+          );
         }
-      });
+      }
 
-      const results = await Promise.all(connectionPromises);
-      const successfulConnections = results.filter(r => r.success).length;
+      this.logger.info(`Connesso a ${connectedCount} di ${bootstrapNodes.length} peer bootstrap`);
 
-      this.logger.info(
-        `Connesso a ${successfulConnections}/${bootstrapPeers.length} peer bootstrap`
-      );
-
-      if (successfulConnections === 0 && bootstrapPeers.length > 0) {
+      if (connectedCount === 0) {
         this.logger.warn(
           'Impossibile connettersi a nessun peer bootstrap, funzionamento in modalità isolata'
         );
