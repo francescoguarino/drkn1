@@ -230,7 +230,7 @@ export class NetworkManager extends EventEmitter {
           if (error.message.includes('could not listen') || error.code === 'EADDRINUSE') {
             this.logger.warn(`Porta ${port} occupata, tentativo con porta alternativa...`);
             // Prova con una porta casuale tra 10000 e 65000
-            port = Math.floor(Math.random() * 55000) + 10000;
+              port = Math.floor(Math.random() * 55000) + 10000;
           } else {
             // Se l'errore è di altro tipo, rilancia l'eccezione
             this.logger.error(`Errore imprevisto nella creazione del nodo: ${error.message}`);
@@ -385,10 +385,10 @@ export class NetworkManager extends EventEmitter {
       let successCount = 0;
 
       for (const peerId of this.peers) {
-        try {
+          try {
           await this.sendMessage(peerId, message);
           successCount++;
-        } catch (error) {
+          } catch (error) {
           this.logger.warn(`Errore nell'invio del messaggio a ${peerId}: ${error.message}`);
         }
       }
@@ -624,57 +624,40 @@ export class NetworkManager extends EventEmitter {
 
       // Formatta gli indirizzi dei nodi in diversi formati per aumentare le possibilità di connessione
       for (const node of staticBootstrapNodes) {
+        // Verifica se il nodo non è il nodo corrente
+        if (node.id !== this.peerId.id) {
         // Formato completo
         bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
         // Formato DNS (può funzionare meglio in alcune configurazioni di rete)
         bootstrapNodes.push(`/dns4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
         // Formato semplice (utile per alcuni casi)
         bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}`);
+        }
       }
 
-      // Aggiungi i bootstrap nodes dalla configurazione, evitando duplicati
+      // Aggiungi i bootstrap nodes dalla configurazione, evitando duplicati e il nodo corrente
       if (this.config.p2p.bootstrapNodes && Array.isArray(this.config.p2p.bootstrapNodes)) {
         for (const node of this.config.p2p.bootstrapNodes) {
           // Verifica se è un indirizzo multiaddr o un oggetto con host/port
           if (typeof node === 'string') {
-            // Verifica se l'indirizzo è già presente
-            if (!bootstrapNodes.includes(node)) {
+            // Verifica se l'indirizzo è già presente e non è il nodo corrente
+            if (!bootstrapNodes.includes(node) && !node.includes(this.peerId.id)) {
               bootstrapNodes.push(node);
             }
           } else if (node.host && node.port) {
+            // Verifica se non è il nodo corrente
+            if (node.id !== this.peerId.id) {
             const nodeAddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id || 'QmBootstrap'}`;
             // Verifica se l'indirizzo è già presente
             if (!bootstrapNodes.includes(nodeAddr)) {
               bootstrapNodes.push(nodeAddr);
             }
-          }
-        }
-      }
-
-      // Se ancora non ci sono bootstrap nodes, prova con gli ultimi nodi conosciuti
-      if (bootstrapNodes.length === 0) {
-        // Carica gli ultimi nodi conosciuti dal database o dal file di configurazione
-        const knownPeers = await this._loadKnownPeers();
-        if (knownPeers.length > 0) {
-          for (const peer of knownPeers) {
-            if (peer.id && peer.host && peer.port) {
-              bootstrapNodes.push(`/ip4/${peer.host}/tcp/${peer.port}/p2p/${peer.id}`);
             }
           }
         }
       }
 
-      // Se abbiamo più di 4 nodi, limita a massimo 4 per evitare problemi di performance
-      if (bootstrapNodes.length > 4) {
-        this.logger.info(`Limitando a 4 bootstrap nodes tra ${bootstrapNodes.length} disponibili`);
-        bootstrapNodes.splice(4);
-      }
-
-      this.logger.info(
-        `Bootstrap nodes configurati (${bootstrapNodes.length}): ${
-          bootstrapNodes.join(', ') || 'nessuno'
-        }`
-      );
+      this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} bootstrap nodes`);
       return bootstrapNodes;
     } catch (error) {
       this.logger.error(`Errore nella ricerca dei bootstrap nodes: ${error.message}`);
@@ -906,13 +889,13 @@ export class NetworkManager extends EventEmitter {
       const staticBootstrapNodes = [
         {
           host: '51.89.148.92',
-          port: 22201,
-          id: '12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht'
+          port: 6001,
+          id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
         },
         {
           host: '135.125.232.233',
           port: 6001,
-          id: '12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy'
+          id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
         }
       ];
 
@@ -927,32 +910,28 @@ export class NetworkManager extends EventEmitter {
       ) {
         // Aggiungi i nodi della configurazione ai nodi fissi
         for (const node of this.config.p2p.bootstrapNodes) {
-          // Evita duplicati verificando host e porta
+          // Evita duplicati e il nodo corrente
           const isDuplicate = bootstrapNodes.some(
             existing => existing.host === node.host && existing.port === node.port
           );
-          if (!isDuplicate) {
+          const isSelf = node.id === this.peerId.id;
+
+          if (!isDuplicate && !isSelf) {
             bootstrapNodes.push(node);
           }
         }
-      } else {
-        this.logger.warn(
-          'Nessun bootstrap node configurato nella configurazione, usando solo i nodi fissi'
-        );
       }
 
       this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} bootstrap nodes`);
 
       // Converti i bootstrap nodes in formato libp2p
       const bootstrapAddresses = bootstrapNodes.map(node => {
-        // Usa l'id fornito o genera un fallback
-        const id = node.id || `unknown-${Date.now()}`;
         return {
-          id: id,
+          id: node.id,
           multiaddrs: [
             `/ip4/${node.host}/tcp/${node.port}`,
-            `/ip4/${node.host}/tcp/${node.port}/p2p/${id}`,
-            `/dns4/${node.host}/tcp/${node.port}/p2p/${id}`
+            `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`,
+            `/dns4/${node.host}/tcp/${node.port}/p2p/${node.id}`
           ]
         };
       });
@@ -960,7 +939,6 @@ export class NetworkManager extends EventEmitter {
       // Aggiungi i nodi al peerStore
       for (const addr of bootstrapAddresses) {
         try {
-          // Verifica che addressBook.add esista
           if (
             this.node.peerStore.addressBook &&
             typeof this.node.peerStore.addressBook.add === 'function'
@@ -982,14 +960,13 @@ export class NetworkManager extends EventEmitter {
       let connectedCount = 0;
       for (const addr of bootstrapAddresses) {
         try {
-          // Verifica che dial esista
           if (typeof this.node.dial === 'function') {
             this.logger.info(`Tentativo di connessione al bootstrap node: ${addr.id}`);
             await this.node.dial(addr.id);
             this.logger.info(`Connesso al bootstrap node: ${addr.id}`);
             connectedCount++;
 
-            // Aggiungi un piccolo ritardo tra le connessioni per dare tempo alla rete
+            // Aggiungi un piccolo ritardo tra le connessioni
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
         } catch (error) {
@@ -1004,7 +981,6 @@ export class NetworkManager extends EventEmitter {
         `Connesso a ${connectedCount} di ${bootstrapAddresses.length} bootstrap nodes`
       );
 
-      // Se non siamo riusciti a connetterci a nessun nodo, prova ad ascoltare sulla porta predefinita
       if (connectedCount === 0) {
         this.logger.warn(
           'Non è stato possibile connettersi a nessun bootstrap node. Proverò a rimanere in ascolto per connessioni in entrata.'
@@ -1237,7 +1213,7 @@ export class NetworkManager extends EventEmitter {
    * @param {string} peerId - ID del peer da disconnettere
    */
   async _disconnectPeer(peerId) {
-    try {
+      try {
       if (this.peers.has(peerId)) {
         this.logger.info(`Disconnessione dal peer: ${peerId}`);
         await this.node.hangUp(peerId);
@@ -1247,7 +1223,7 @@ export class NetworkManager extends EventEmitter {
         return true;
       }
       return false;
-    } catch (error) {
+      } catch (error) {
       this.logger.error(`Errore nella disconnessione dal peer ${peerId}: ${error.message}`);
       return false;
     }
