@@ -213,14 +213,31 @@ export class NetworkManager extends EventEmitter {
           this.node = await createLibp2p({
             peerId, // Usiamo il peerId ottenuto
             addresses: {
-              listen: [`/ip4/0.0.0.0/tcp/${port}`]
+              listen: [
+                `/ip4/0.0.0.0/tcp/${port}`,
+                `/ip4/127.0.0.1/tcp/${port}`,
+                `/ip4/${this.config.p2p.host || '0.0.0.0'}/tcp/${port}`
+              ]
             },
             transports: [tcp()],
             streamMuxers: [mplex()],
             connectionEncryption: [noise()],
             connectionManager: {
               maxConnections: this.config.network.maxConnections || 50,
-              minConnections: this.config.network.minConnections || 5
+              minConnections: this.config.network.minConnections || 5,
+              pollInterval: 2000,
+              autoDialInterval: 5000
+            },
+            services: {
+              dht: {
+                enabled: true,
+                clientMode: false,
+                protocol: '/ipfs/kad/1.0.0',
+                kBucketSize: 20,
+                randomWalk: {
+                  enabled: true
+                }
+              }
             }
           });
 
@@ -1438,9 +1455,16 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
         try {
           this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id}`);
 
+          // Crea l'indirizzo multiaddr completo
+          const multiaddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`;
+
+          // Aggiungi l'indirizzo al peerStore
+          await this.node.peerStore.addressBook.add(node.id, [multiaddr]);
+
           // Aggiungi un piccolo ritardo tra i tentativi
           await new Promise(resolve => setTimeout(resolve, 1000));
 
+          // Tenta la connessione
           await this.node.dial(node.id);
           this.logger.info(`Connesso al bootstrap node: ${node.id}`);
           connectedCount++;
