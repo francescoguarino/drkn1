@@ -227,17 +227,6 @@ export class NetworkManager extends EventEmitter {
               minConnections: this.config.network.minConnections || 5,
               pollInterval: 2000,
               autoDialInterval: 5000
-            },
-            services: {
-              dht: {
-                enabled: true,
-                clientMode: false,
-                protocol: '/ipfs/kad/1.0.0',
-                kBucketSize: 20,
-                randomWalk: {
-                  enabled: true
-                }
-              }
             }
           });
 
