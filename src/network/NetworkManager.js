@@ -612,13 +612,13 @@ export class NetworkManager extends EventEmitter {
       const staticBootstrapNodes = [
         {
           host: '51.89.148.92',
-          port: 22201,
-          id: '12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht'
+          port: 6001,
+          id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
         },
         {
           host: '135.125.232.233',
           port: 6001,
-          id: '12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy'
+          id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
         }
       ];
 
@@ -680,8 +680,8 @@ export class NetworkManager extends EventEmitter {
       this.logger.error(`Errore nella ricerca dei bootstrap nodes: ${error.message}`);
       // In caso di errore, restituisci almeno i nodi statici base
       return [
-        `/ip4/51.89.148.92/tcp/22201/p2p/12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht`,
-        `/ip4/135.125.232.233/tcp/6001/p2p/12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy`
+        `/ip4/51.89.148.92/tcp/6001/p2p/12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F`,
+        `/ip4/135.125.232.233/tcp/6001/p2p/12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK`
       ];
     }
   }

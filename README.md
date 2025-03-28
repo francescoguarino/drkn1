@@ -87,8 +87,8 @@ Per far comunicare i nodi tra loro su macchine diverse, è necessario configurar
 La rete Drakon include due nodi bootstrap predefiniti attivi che facilitano l'ingresso nella rete:
 
 ```
-Server 1: 51.89.148.92:22201 (ID: 12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht)
-Server 2: 135.125.232.233:6001 (ID: 12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy)
+Server 1: 51.89.148.92:6001 (ID: 12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F)
+Server 2: 135.125.232.233:6001 (ID: 12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK)
 ```
 
 Questi nodi sono configurati nella rete per impostazione predefinita, quindi i nuovi nodi dovrebbero essere in grado di connettersi automaticamente alla rete senza configurazione aggiuntiva.
@@ -96,7 +96,7 @@ Questi nodi sono configurati nella rete per impostazione predefinita, quindi i n
 Per connettersi manualmente a questi nodi, è possibile utilizzare:
 
 ```bash
-BOOTSTRAP_NODES='[{"host":"51.89.148.92","port":22201,"id":"12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht"},{"host":"135.125.232.233","port":6001,"id":"12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy"}]' node src/index.js
+BOOTSTRAP_NODES='[{"host":"51.89.148.92","port":6001,"id":"12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F"},{"host":"135.125.232.233","port":6001,"id":"12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK"}]' node src/index.js
 ```
 
 ## API REST

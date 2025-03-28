@@ -26,13 +26,13 @@ const DEFAULT_CONFIG = {
       // Nodi bootstrap predefiniti (nodi reali attivi)
       {
         host: '51.89.148.92',
-        port: 22201,
-        id: '12D3KooWAomhXNPE7o6Woo7o8qrqkD94mYn958epsMzaUXC5Kjht'
+        port: 6001,
+        id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
       },
       {
         host: '135.125.232.233',
         port: 6001,
-        id: '12D3KooWG4QNwjix4By4Sjz6aaJDmAjfDfa9K1gMDTXZ2SnQzvZy'
+        id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
       }
     ],
     discovery: {

@@ -56,7 +56,7 @@ export class Blockchain extends EventEmitter {
 
   async isValidBlock(block) {
     try {
-      // Verifica il hash del blocco
+      // Verifica l'hash del blocco
       const calculatedHash = this.calculateBlockHash(block);
       if (calculatedHash !== block.hash) {
         this.logger.warn('Hash del blocco non valido');
