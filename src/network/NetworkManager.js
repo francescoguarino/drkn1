@@ -227,6 +227,14 @@ export class NetworkManager extends EventEmitter {
               minConnections: this.config.network.minConnections || 5,
               pollInterval: 2000,
               autoDialInterval: 5000
+            },
+            services: {
+              bootstrap: bootstrap({
+                list: [
+                  `/ip4/51.89.148.92/tcp/6001/p2p/12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F`,
+                  `/ip4/135.125.232.233/tcp/6001/p2p/12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK`
+                ]
+              })
             }
           });
 
@@ -1453,7 +1461,12 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
           // Aggiungi un piccolo ritardo tra i tentativi
           await new Promise(resolve => setTimeout(resolve, 1000));
 
-          // Tenta la connessione
+          // Tenta la connessione usando il servizio di bootstrap
+          if (this.node.services.bootstrap) {
+            await this.node.services.bootstrap.start();
+          }
+
+          // Tenta la connessione diretta come fallback
           await this.node.dial(node.id);
           this.logger.info(`Connesso al bootstrap node: ${node.id}`);
           connectedCount++;
