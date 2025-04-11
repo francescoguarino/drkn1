@@ -14,6 +14,12 @@ import { base58btc } from 'multiformats/bases/base58';
 import { toString as uint8ArrayToString } from 'uint8arrays/to-string';
 import { fromString as uint8ArrayFromString } from 'uint8arrays/from-string';
 import crypto from 'crypto';
+import { 
+  getAllBootstrapNodes, 
+  getActiveBootstrapNodes, 
+  toMultiAddr,
+  getAllMultiaddrs 
+} from '../config/bootstrap-nodes.js';
 
 export class NetworkManager extends EventEmitter {
   constructor(config, storage) {
@@ -652,24 +658,14 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
     const bootstrapNodes = [];
 
     try {
-      // Aggiungiamo sempre i nostri nodi bootstrap fissi
-      const staticBootstrapNodes = [
-        {
-          host: '51.89.148.92',
-          port: 6001,
-          id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
-        },
-        {
-          host: '135.125.232.233',
-          port: 6001,
-          id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
-        }
-      ];
+      // Ottieni i nodi bootstrap dal file centralizzato
+      const activeNodes = getActiveBootstrapNodes();
+      this.logger.info(`Trovati ${activeNodes.length} nodi bootstrap attivi`);
 
-      // Formatta gli indirizzi dei nodi in diversi formati per aumentare le possibilità di connessione
-      for (const node of staticBootstrapNodes) {
+      // Aggiungi gli indirizzi multiaddr in diversi formati per aumentare le possibilità di connessione
+      for (const node of activeNodes) {
         // Verifica se il nodo non è il nodo corrente
-        if (node.id !== this.peerId.id) {
+        if (node.id !== this.peerId.toString()) {
           // Formato completo
           bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
           // Formato DNS (può funzionare meglio in alcune configurazioni di rete)
@@ -685,12 +681,12 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
           // Verifica se è un indirizzo multiaddr o un oggetto con host/port
           if (typeof node === 'string') {
             // Verifica se l'indirizzo è già presente e non è il nodo corrente
-            if (!bootstrapNodes.includes(node) && !node.includes(this.peerId.id)) {
+            if (!bootstrapNodes.includes(node) && !node.includes(this.peerId.toString())) {
               bootstrapNodes.push(node);
             }
           } else if (node.host && node.port) {
             // Verifica se non è il nodo corrente
-            if (node.id !== this.peerId.id) {
+            if (node.id !== this.peerId.toString()) {
               const nodeAddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id || 'QmBootstrap'}`;
               // Verifica se l'indirizzo è già presente
               if (!bootstrapNodes.includes(nodeAddr)) {
@@ -705,11 +701,8 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
       return bootstrapNodes;
     } catch (error) {
       this.logger.error(`Errore nella ricerca dei bootstrap nodes: ${error.message}`);
-      // In caso di errore, restituisci almeno i nodi statici base
-      return [
-        `/ip4/51.89.148.92/tcp/6001/p2p/12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F`,
-        `/ip4/135.125.232.233/tcp/6001/p2p/12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK`
-      ];
+      // In caso di errore, utilizza getAllMultiaddrs come fallback
+      return getAllMultiaddrs();
     }
   }
 
@@ -929,24 +922,17 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
         await this.node.peerStore.load();
       }
 
-      // Array dei nostri bootstrap nodes fissi
-      const staticBootstrapNodes = [
-        {
-          host: '51.89.148.92',
-          port: 6001,
-          id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
-        },
-        {
-          host: '135.125.232.233',
-          port: 6001,
-          id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
-        }
-      ];
+      // Verifica se siamo in modalità demo, in tal caso non cercare di connettersi ai bootstrap nodes
+      if (this.networkType === 'demo') {
+        this.logger.info('Modalità demo attivata, salto la connessione ai bootstrap nodes');
+        return;
+      }
 
-      // Ottieni array di bootstrap nodes dalla configurazione o usa i nodi fissi
-      let bootstrapNodes = [...staticBootstrapNodes];
-
+      // Ottieni i nodi bootstrap attivi dal file centralizzato
+      const activeNodes = getActiveBootstrapNodes();
+      
       // Verifica che config.p2p.bootstrapNodes esista e aggiungi quei nodi
+      let bootstrapNodes = [...activeNodes];
       if (
         this.config.p2p &&
         this.config.p2p.bootstrapNodes &&
@@ -958,7 +944,7 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
           const isDuplicate = bootstrapNodes.some(
             existing => existing.host === node.host && existing.port === node.port
           );
-          const isSelf = node.id === this.peerId.id;
+          const isSelf = node.id === this.peerId.toString();
 
           if (!isDuplicate && !isSelf) {
             bootstrapNodes.push(node);
@@ -1403,57 +1389,28 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
    */
   async _connectToBootstrapPeers() {
     try {
-      // Array dei nostri bootstrap nodes fissi
-      const staticBootstrapNodes = [
-        {
-          host: '51.89.148.92',
-          port: 6001,
-          id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
-        },
-        {
-          host: '135.125.232.233',
-          port: 6001,
-          id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
-        }
-      ];
-
-      // Ottieni array di bootstrap nodes dalla configurazione o usa i nodi fissi
-      let bootstrapNodes = [...staticBootstrapNodes];
-
-      // Verifica che config.p2p.bootstrapNodes esista e aggiungi quei nodi
-      if (
-        this.config.p2p &&
-        this.config.p2p.bootstrapNodes &&
-        Array.isArray(this.config.p2p.bootstrapNodes)
-      ) {
-        // Aggiungi i nodi della configurazione ai nodi fissi
-        for (const node of this.config.p2p.bootstrapNodes) {
-          // Evita duplicati e il nodo corrente
-          const isDuplicate = bootstrapNodes.some(
-            existing => existing.host === node.host && existing.port === node.port
-          );
-          const isSelf = node.id === this.peerId.id;
-
-          if (!isDuplicate && !isSelf) {
-            bootstrapNodes.push(node);
-          }
-        }
-      }
-
-      if (bootstrapNodes.length === 0) {
-        this.logger.warn('Nessun peer bootstrap configurato, funzionamento in modalità standalone');
+      // Ottieni i nodi bootstrap attivi dal file centralizzato
+      const activeNodes = getActiveBootstrapNodes();
+      
+      if (activeNodes.length === 0) {
+        this.logger.warn('Nessun nodo bootstrap attivo trovato, funzionamento in modalità standalone');
         return;
       }
 
-      this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} peer bootstrap...`);
+      this.logger.info(`Tentativo di connessione a ${activeNodes.length} nodi bootstrap...`);
 
       let connectedCount = 0;
-      for (const node of bootstrapNodes) {
+      for (const node of activeNodes) {
+        // Salta se è il nodo corrente
+        if (node.id === this.peerId.toString()) {
+          continue;
+        }
+        
         try {
-          this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id}`);
+          this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id} (${node.host}:${node.port})`);
 
           // Crea l'indirizzo multiaddr completo
-          const multiaddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`;
+          const multiaddr = toMultiAddr(node);
 
           // Aggiungi l'indirizzo al peerStore
           await this.node.peerStore.addressBook.add(node.id, [multiaddr]);
@@ -1478,15 +1435,15 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
         }
       }
 
-      this.logger.info(`Connesso a ${connectedCount} di ${bootstrapNodes.length} peer bootstrap`);
+      this.logger.info(`Connesso a ${connectedCount} di ${activeNodes.length} nodi bootstrap`);
 
       if (connectedCount === 0) {
         this.logger.warn(
-          'Impossibile connettersi a nessun peer bootstrap, funzionamento in modalità isolata'
+          'Impossibile connettersi a nessun nodo bootstrap, funzionamento in modalità isolata'
         );
       }
     } catch (error) {
-      this.logger.error(`Errore nella connessione ai peer bootstrap: ${error.message}`);
+      this.logger.error(`Errore nella connessione ai nodi bootstrap: ${error.message}`);
     }
   }
 }
