@@ -104,3 +104,50 @@ export function showNodeInfo(info) {
   console.log(table.toString());
   console.log('');
 }
+
+export function displayBootstrapBanner(config) {
+  const bannerText = `
+  ██████╗  ██████╗   █████╗  ██╗  ██╗  ██████╗  ███╗   ██╗
+  ██╔══██╗ ██╔══██╗ ██╔══██╗ ██║ ██╔╝ ██╔═══██╗ ████╗  ██║
+  ██║  ██║ ██████╔╝ ███████║ █████╔╝  ██║   ██║ ██╔██╗ ██║
+  ██║  ██║ ██╔══██╗ ██╔══██║ ██╔═██╗  ██║   ██║ ██║╚██╗██║
+  ██████╔╝ ██║  ██║ ██║  ██║ ██║  ██╗ ╚██████╔╝ ██║ ╚████║
+  ╚═════╝  ╚═╝  ╚═╝ ╚═╝  ╚═╝ ╚═╝  ╚═╝  ╚═════╝  ╚═╝  ╚═══╝
+  
+  ███████╗ ███╗   ██╗ ████████╗ ███████╗ ██████╗   
+  ██╔════╝ ████╗  ██║ ╚══██╔══╝ ██╔════╝ ██╔══██╗  
+  █████╗   ██╔██╗ ██║    ██║    █████╗   ██████╔╝  
+  ██╔══╝   ██║╚██╗██║    ██║    ██╔══╝   ██╔══██╗  
+  ███████╗ ██║ ╚████║    ██║    ███████╗ ██║  ██║  
+  ╚══════╝ ╚═╝  ╚═══╝    ╚═╝    ╚══════╝ ╚═╝  ╚═╝  
+
+  ███╗   ██╗  ██████╗  ██████╗  ███████╗
+  ████╗  ██║ ██╔═══██╗ ██╔══██╗ ██╔════╝
+  ██╔██╗ ██║ ██║   ██║ ██║  ██║ █████╗  
+  ██║╚██╗██║ ██║   ██║ ██║  ██║ ██╔══╝  
+  ██║ ╚████║ ╚██████╔╝ ██████╔╝ ███████╗
+  ╚═╝  ╚═══╝  ╚═════╝  ╚═════╝  ╚══════╝
+  `;
+
+  console.log(bannerText);
+
+  const configSummary = `
+╔════════════════════════════════════════════════════════════════════════════╗
+║ Informazioni Nodo Bootstrap                                              ║
+╠════════════════════════════════════════════════════════════════════════════╣
+║ Versione: ${config.version || '1.0.0'}${' '.repeat(60 - (config.version || '1.0.0').length)}║
+║ Network: ${config.network?.type || 'testnet'}${' '.repeat(62 - (config.network?.type || 'testnet').length)}║
+║ Canale: ${config.channel || 'N/A'}${' '.repeat(63 - (config.channel || 'N/A').length)}║
+║ Porta P2P: ${config.p2p?.port || 'N/A'}${' '.repeat(61 - String(config.p2p?.port || 'N/A').length)}║
+║ Porta API: ${config.api?.port || 'N/A'}${' '.repeat(61 - String(config.api?.port || 'N/A').length)}║
+║ Directory Dati: ${config.storage?.path || 'N/A'}${' '.repeat(56 - String(config.storage?.path || 'N/A').length)}║
+╠════════════════════════════════════════════════════════════════════════════╣
+║ ID Nodo: ${config.node?.id || 'N/A'}${' '.repeat(62 - String(config.node?.id || 'N/A').length)}║
+║ Ambiente: ${config.environment || 'development'}${' '.repeat(61 - (config.environment || 'development').length)}║
+╚════════════════════════════════════════════════════════════════════════════╝
+`;
+
+  console.log(configSummary);
+
+  return configSummary;
+}

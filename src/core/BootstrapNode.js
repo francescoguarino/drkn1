@@ -1,0 +1,262 @@
+import { EventEmitter } from 'events';
+import { Logger } from '../utils/logger.js';
+import { NetworkManager } from '../network/NetworkManager.js';
+import { APIServer } from '../api/server.js';
+import { NodeStorage } from '../utils/NodeStorage.js';
+import path from 'path';
+
+/**
+ * Classe specializzata per i nodi bootstrap della rete Drakon.
+ * Implementa solo le funzionalità necessarie per un nodo di ingresso,
+ * senza blockchain, wallet, mining, o altre funzionalità non essenziali.
+ */
+export class BootstrapNode extends EventEmitter {
+  constructor(config) {
+    super();
+    
+    if (!config) {
+      throw new Error('La configurazione è richiesta');
+    }
+
+    this.config = config;
+    this.logger = new Logger('BootstrapNode');
+    this.storage = new NodeStorage(this.config);
+    this.bannerDisplayed = config.bannerDisplayed || false;
+    this.isRunning = false;
+
+    // Debug info
+    this.logger.debug(
+      'Inizializzazione del nodo bootstrap con la configurazione:',
+      JSON.stringify(
+        {
+          nodeId: this.config.node?.id,
+          p2pPort: this.config.p2p?.port,
+          apiPort: this.config.api?.port
+        },
+        null,
+        2
+      )
+    );
+
+    try {
+      // Il nodo bootstrap necessita solo di NetworkManager e APIServer
+      this.networkManager = new NetworkManager(this.config, this.storage);
+      this.apiServer = new APIServer(this.config, this);
+      
+      this._setupEventHandlers();
+    } catch (error) {
+      this.logger.error("Errore durante l'inizializzazione del nodo bootstrap:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Avvia il nodo bootstrap
+   */
+  async start() {
+    try {
+      this.logger.info('Avvio del nodo bootstrap Drakon...');
+
+      // Carica le informazioni esistenti
+      const savedInfo = await this.storage.loadNodeInfo();
+
+      if (savedInfo && savedInfo.nodeId) {
+        this.logger.info(`Caricate informazioni del nodo esistenti con ID: ${savedInfo.nodeId}`);
+        // Usa le informazioni salvate
+        this.nodeId = savedInfo.nodeId;
+        
+        if (savedInfo.p2pPort) {
+          this.logger.info(`Usando porta P2P salvata: ${savedInfo.p2pPort}`);
+          this.config.p2p.port = savedInfo.p2pPort;
+        }
+        
+        if (savedInfo.apiPort) {
+          this.logger.info(`Usando porta API salvata: ${savedInfo.apiPort}`);
+          this.config.api.port = savedInfo.apiPort;
+        }
+      } else {
+        // Se non ci sono informazioni salvate, usa l'ID del nodo dalla configurazione
+        this.nodeId = this.config.node.id;
+        this.logger.info(`Usando nuovo ID nodo: ${this.nodeId}`);
+      }
+
+      // Avvia il network manager (P2P)
+      await this.networkManager.start();
+      
+      // Avvia il server API
+      if (this.config.api && this.config.api.enabled) {
+        await this.apiServer.start();
+      }
+
+      // Salva le informazioni del nodo
+      await this.storage.saveNodeInfo({
+        nodeId: this.nodeId,
+        p2pPort: this.config.p2p.port,
+        apiPort: this.config.api.port,
+        type: 'bootstrap'
+      });
+
+      this.isRunning = true;
+      this.logger.info('Nodo bootstrap avviato con successo');
+      
+      // Emetti l'evento 'started'
+      this.emit('started', {
+        nodeId: this.nodeId,
+        p2pPort: this.config.p2p.port,
+        apiPort: this.config.api.port
+      });
+
+      return true;
+    } catch (error) {
+      this.logger.error("Errore durante l'avvio del nodo bootstrap:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Arresta il nodo bootstrap
+   */
+  async stop() {
+    try {
+      this.logger.info('Arresto del nodo bootstrap...');
+
+      // Arresta l'API server
+      if (this.apiServer) {
+        await this.apiServer.stop();
+      }
+
+      // Arresta il network manager
+      if (this.networkManager) {
+        await this.networkManager.stop();
+      }
+
+      this.isRunning = false;
+      this.logger.info('Nodo bootstrap arrestato con successo!');
+      
+      // Emetti l'evento 'stopped'
+      this.emit('stopped');
+
+      return true;
+    } catch (error) {
+      this.logger.error("Errore durante l'arresto del nodo bootstrap:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Configura i gestori di eventi
+   */
+  _setupEventHandlers() {
+    // Gestione eventi di rete
+    this.networkManager.on('peer:connect', (peer) => {
+      this.logger.info(`Nuovo peer connesso: ${peer.id}`);
+       
+      // Invia messaggio di benvenuto al peer
+      this._sendWelcomeMessage(peer);
+      
+      // Propaga l'evento
+      this.emit('peer:connect', peer);
+    });
+
+    this.networkManager.on('peer:disconnect', (peer) => {
+      this.logger.info(`Peer disconnesso: ${peer.id}`);
+      this.emit('peer:disconnect', peer);
+    });
+
+    this.networkManager.on('message', (message, peer) => {
+      this.logger.debug(`Messaggio ricevuto da ${peer.id}: ${message.type}`);
+      this.emit('message', message, peer);
+      
+      // Gestione semplice dei messaggi
+      this._handleMessage(message, peer);
+    });
+  }
+
+  /**
+   * Invia un messaggio di benvenuto a un peer appena connesso
+   */
+  async _sendWelcomeMessage(peer) {
+    try {
+      await peer.send({
+        type: 'ENTRY_GREETING',
+        payload: {
+          message: 'Benvenuto nella rete Drakon! Sono un nodo di ingresso.',
+          bootstrapId: this.nodeId,
+          timestamp: Date.now()
+        }
+      });
+      
+      this.logger.info(`Messaggio di benvenuto inviato a: ${peer.id}`);
+    } catch (error) {
+      this.logger.error(`Errore nell'invio del messaggio di benvenuto a ${peer.id}:`, error);
+    }
+  }
+
+  /**
+   * Gestisce i messaggi in arrivo
+   */
+  _handleMessage(message, peer) {
+    // Implementa solo gestione messaggi basilari necessari per bootstrap
+    switch (message.type) {
+      case 'PING':
+        // Rispondi con un PONG
+        peer.send({
+          type: 'PONG',
+          payload: {
+            timestamp: Date.now()
+          }
+        }).catch(err => {
+          this.logger.error(`Errore nell'invio del PONG a ${peer.id}:`, err);
+        });
+        break;
+        
+      case 'GET_PEERS':
+        // Invia la lista dei peer connessi
+        const connectedPeers = this.networkManager.getConnectedPeers();
+        peer.send({
+          type: 'PEERS_LIST',
+          payload: {
+            peers: connectedPeers.map(p => ({
+              id: p.id,
+              addresses: p.addresses
+            }))
+          }
+        }).catch(err => {
+          this.logger.error(`Errore nell'invio della lista peer a ${peer.id}:`, err);
+        });
+        break;
+        
+      default:
+        // Ignora altri tipi di messaggi non supportati dal bootstrap node
+        this.logger.debug(`Messaggio di tipo ${message.type} non gestito dal nodo bootstrap`);
+    }
+  }
+
+  /**
+   * Restituisce statistiche di rete
+   */
+  async getNetworkStats() {
+    return {
+      nodeId: this.nodeId,
+      peerId: this.networkManager.getPeerId(),
+      connectedPeers: this.networkManager.getConnectedPeersCount(),
+      uptime: this._getUptime(),
+      addresses: this.networkManager.getAddresses(),
+      p2pPort: this.config.p2p.port,
+      apiPort: this.config.api.port
+    };
+  }
+
+  /**
+   * Calcola l'uptime del nodo in secondi
+   */
+  _getUptime() {
+    // Se il nodo non è in esecuzione, l'uptime è 0
+    if (!this.startTime) {
+      return 0;
+    }
+
+    // Altrimenti calcola l'uptime come la differenza tra ora e il tempo di avvio
+    return Math.floor((Date.now() - this.startTime) / 1000);
+  }
+} 
