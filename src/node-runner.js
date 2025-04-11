@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import fs from 'fs/promises';
 import { displayBanner } from './utils/banner.js';
 import { NodeStorage } from './utils/NodeStorage.js';
+import { getAllBootstrapNodes, toMultiAddr } from './config/bootstrap-nodes.js';
 
 const logger = new Logger('NodeRunner');
 
@@ -72,6 +73,20 @@ async function runNode(options = {}) {
 
     if (options.isBootstrap !== undefined) {
       config.config.node.isBootstrap = options.isBootstrap;
+    }
+
+    // AGGIUNTO: Imposta il tipo di rete se specificato
+    if (options.networkType) {
+      if (!config.config.network) {
+        config.config.network = {
+          type: options.networkType,
+          maxPeers: 50,
+          peerTimeout: 30000
+        };
+      } else {
+        config.config.network.type = options.networkType;
+      }
+      logger.info(`Tipo di rete impostato a: ${options.networkType}`);
     }
 
     // Crea le directory necessarie
@@ -386,20 +401,45 @@ function parseCommandLineArgs() {
         options.bootstrapNodes = [];
       }
 
-      // Formato atteso: host:port
-      const parts = bootstrapNodeArg.split(':');
-      if (parts.length === 2) {
-        options.bootstrapNodes.push({
-          host: parts[0],
-          port: parseInt(parts[1])
-        });
+      // Formato atteso: host:port o ID
+      if (bootstrapNodeArg.includes(':')) {
+        // Formato host:port
+        const parts = bootstrapNodeArg.split(':');
+        if (parts.length === 2) {
+          options.bootstrapNodes.push({
+            host: parts[0],
+            port: parseInt(parts[1])
+          });
+        }
+      } else {
+        // Prova a cercare il nodo per ID nel file centralizzato
+        const allNodes = getAllBootstrapNodes();
+        const foundNode = allNodes.find(n => n.id === bootstrapNodeArg);
+        
+        if (foundNode) {
+          options.bootstrapNodes.push(foundNode);
+        } else {
+          console.warn(`Nodo bootstrap con ID ${bootstrapNodeArg} non trovato nel registro centrale`);
+        }
       }
+    } else if (arg === '--use-central-bootstrap') {
+      // Nuova opzione per utilizzare i nodi bootstrap dal file centralizzato
+      options.useCentralBootstrap = true;
     } else if (arg === '--mining' && i + 1 < args.length) {
       options.mining = args[++i] === 'true' || args[i] === '1';
+    } else if (arg === '--network-type' && i + 1 < args.length) {
+      // Nuova opzione per specificare il tipo di rete (normal, demo, ecc.)
+      options.networkType = args[++i];
     } else if (arg === '--help' || arg === '-h') {
       showHelp();
       process.exit(0);
     }
+  }
+
+  // Se richiesto di usare i nodi bootstrap centrali e non sono stati specificati altri nodi
+  if (options.useCentralBootstrap && (!options.bootstrapNodes || options.bootstrapNodes.length === 0)) {
+    const centralNodes = getAllBootstrapNodes();
+    options.bootstrapNodes = centralNodes;
   }
 
   return options;
@@ -416,16 +456,21 @@ Drakon Node Runner
 Uso: node src/node-runner.js [opzioni]
 
 Opzioni:
-  --port NUM              Porta P2P (la porta API sarà PORT+1000)
-  --data-dir PATH         Directory per i dati del nodo
-  --bootstrap             Avvia come nodo bootstrap
+  --port NUM                  Porta P2P (la porta API sarà PORT+1000)
+  --data-dir PATH             Directory per i dati del nodo
+  --bootstrap                 Avvia come nodo bootstrap
   --bootstrap-node HOST:PORT  Aggiungi un nodo bootstrap (può essere ripetuto)
-  --mining BOOL           Abilita o disabilita il mining (true/false)
-  --help, -h              Mostra questo aiuto
+  --bootstrap-node ID         Aggiungi un nodo bootstrap utilizzando il suo ID dal registro centrale
+  --use-central-bootstrap     Utilizza i nodi bootstrap dal registro centrale
+  --mining BOOL               Abilita o disabilita il mining (true/false)
+  --network-type TYPE         Imposta il tipo di rete (normal, demo)
+  --help, -h                  Mostra questo aiuto
   
 Esempi:
   node src/node-runner.js --port 6001 --bootstrap
   node src/node-runner.js --port 6002 --bootstrap-node 127.0.0.1:6001
+  node src/node-runner.js --port 6003 --use-central-bootstrap
+  node src/node-runner.js --port 6004 --network-type demo
   `);
 }
 
