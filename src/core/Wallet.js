@@ -52,19 +52,19 @@ export class Wallet {
         const keyPath = path.join(this.config.wallet.path, 'wallet.key');
         if (this.config.wallet.saveToFile && fs.existsSync(keyPath)) {
           const keyData = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-          this.privateKey = Buffer.from(keyData.privateKey, 'hex');
-          this.publicKey = Buffer.from(keyData.publicKey, 'hex');
+          this.privateKey = keyData.privateKey;
+          this.publicKey = keyData.publicKey;
         } else {
           // Genera nuove chiavi
           const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
             modulusLength: 2048,
             publicKeyEncoding: {
               type: 'spki',
-              format: 'der'
+              format: 'pem'
             },
             privateKeyEncoding: {
               type: 'pkcs8',
-              format: 'der'
+              format: 'pem'
             }
           });
 
@@ -74,8 +74,8 @@ export class Wallet {
           // Salva le chiavi su file
           if (this.config.wallet.saveToFile) {
             const keyData = {
-              privateKey: this.privateKey.toString('hex'),
-              publicKey: this.publicKey.toString('hex')
+              privateKey: this.privateKey,
+              publicKey: this.publicKey
             };
             fs.writeFileSync(keyPath, JSON.stringify(keyData, null, 2));
             this.logger.info('Chiavi del wallet salvate su file');
@@ -84,7 +84,8 @@ export class Wallet {
       }
 
       // Genera l'indirizzo
-      this.address = crypto.createHash('sha256').update(this.publicKey).digest('hex');
+      const publicKeyBuffer = Buffer.from(this.publicKey.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\n/g, ''), 'base64');
+      this.address = crypto.createHash('sha256').update(publicKeyBuffer).digest('hex');
 
       this.logger.info(`Wallet inizializzato con indirizzo: ${this.address}`);
     } catch (error) {

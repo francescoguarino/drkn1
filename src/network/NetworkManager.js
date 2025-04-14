@@ -220,9 +220,13 @@ export class NetworkManager extends EventEmitter {
             peerId, // Usiamo il peerId ottenuto
             addresses: {
               listen: [
-                `/ip4/0.0.0.0/tcp/${port}`,
-                `/ip4/127.0.0.1/tcp/${port}`,
-                `/ip4/${this.config.p2p.host || '0.0.0.0'}/tcp/${port}`
+                `/ip4/0.0.0.0/tcp/${port}`, // Ascolta su tutte le interfacce
+                `/ip4/127.0.0.1/tcp/${port}` // Ascolta esplicitamente su localhost
+              ],
+              // Forziamo l'annuncio di indirizzi locali e remoti per migliorare la connettività
+              announce: [
+                `/ip4/127.0.0.1/tcp/${port}`, // Annuncia localhost
+                `/ip4/${this.getLocalIpAddress()}/tcp/${port}` // Annuncia IP locale
               ]
             },
             transports: [tcp()],
@@ -232,7 +236,9 @@ export class NetworkManager extends EventEmitter {
               maxConnections: this.config.network.maxConnections || 50,
               minConnections: this.config.network.minConnections || 5,
               pollInterval: 2000,
-              autoDialInterval: 5000
+              autoDialInterval: 5000,
+              // Disabilitiamo la protezione NAT per connessioni locali
+              allowLocalIPAddresses: true
             },
             services: {
               bootstrap: bootstrap({
@@ -1389,53 +1395,110 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
    */
   async _connectToBootstrapPeers() {
     try {
-      // Ottieni i nodi bootstrap attivi dal file centralizzato
-      const activeNodes = getActiveBootstrapNodes();
+      // Ottieni i nodi bootstrap dalla configurazione o dall'ambiente
+      const configNodes = this.config.p2p?.bootstrapNodes || [];
+      const envNodesStr = process.env.BOOTSTRAP_NODES;
       
-      if (activeNodes.length === 0) {
-        this.logger.warn('Nessun nodo bootstrap attivo trovato, funzionamento in modalità standalone');
+      let bootstrapNodes = [];
+      
+      // Aggiungi i nodi dalla configurazione
+      if (configNodes && configNodes.length > 0) {
+        bootstrapNodes = [...configNodes];
+      }
+      
+      // Aggiungi i nodi dall'ambiente
+      if (envNodesStr) {
+        try {
+          const envNodes = JSON.parse(envNodesStr);
+          bootstrapNodes = [...bootstrapNodes, ...envNodes];
+        } catch (error) {
+          this.logger.error(`Errore nel parsing dei bootstrap nodes: ${error.message}`);
+        }
+      }
+      
+      // Aggiungi i nodi bootstrap predefiniti dal sistema
+      const activeNodes = getActiveBootstrapNodes();
+      bootstrapNodes = [...bootstrapNodes, ...activeNodes];
+      
+      // Rimuovi duplicati basati sull'ID
+      bootstrapNodes = bootstrapNodes.filter((node, index, self) => 
+        index === self.findIndex(n => n.id === node.id)
+      );
+      
+      if (bootstrapNodes.length === 0) {
+        this.logger.warn('Nessun nodo bootstrap configurato, funzionamento in modalità standalone');
         return;
       }
 
-      this.logger.info(`Tentativo di connessione a ${activeNodes.length} nodi bootstrap...`);
+      this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} nodi bootstrap...`);
 
       let connectedCount = 0;
-      for (const node of activeNodes) {
+      for (const node of bootstrapNodes) {
         // Salta se è il nodo corrente
         if (node.id === this.peerId.toString()) {
+          this.logger.info(`Saltando il nodo bootstrap con lo stesso ID del nodo corrente: ${node.id}`);
           continue;
         }
         
         try {
           this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id} (${node.host}:${node.port})`);
 
-          // Crea l'indirizzo multiaddr completo
-          const multiaddr = toMultiAddr(node);
-
-          // Aggiungi l'indirizzo al peerStore
-          await this.node.peerStore.addressBook.add(node.id, [multiaddr]);
-
-          // Aggiungi un piccolo ritardo tra i tentativi
-          await new Promise(resolve => setTimeout(resolve, 1000));
-
-          // Tenta la connessione usando il servizio di bootstrap
-          if (this.node.services.bootstrap) {
-            await this.node.services.bootstrap.start();
+          // Creiamo un array di possibili multiaddress per migliorare le chance di connessione
+          const multiaddrs = [];
+          
+          // Prova con l'indirizzo originale
+          multiaddrs.push(`/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
+          
+          // Se l'host è un IP pubblico, prova anche con localhost e IP locale
+          if (node.host !== '127.0.0.1' && node.host !== 'localhost') {
+            multiaddrs.push(`/ip4/127.0.0.1/tcp/${node.port}/p2p/${node.id}`);
+            const localIp = this.getLocalIpAddress();
+            if (localIp !== '127.0.0.1') {
+              multiaddrs.push(`/ip4/${localIp}/tcp/${node.port}/p2p/${node.id}`);
+            }
+          }
+          
+          // Aggiungi gli indirizzi al peerStore
+          for (const addr of multiaddrs) {
+            await this.node.peerStore.addressBook.add(node.id, [addr]);
           }
 
-          // Tenta la connessione diretta come fallback
-          await this.node.dial(node.id);
+          // Aggiungi un piccolo ritardo tra i tentativi
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Tenta la connessione diretta
+          await this.node.dial(node.id, { priority: 1 });
           this.logger.info(`Connesso al bootstrap node: ${node.id}`);
           connectedCount++;
+          
+          // Se la connessione ha avuto successo, possiamo passare al nodo successivo
+          continue;
         } catch (error) {
           this.logger.warn(
             `Non è stato possibile connettersi al bootstrap node: ${node.id}`,
             error.message
           );
+          
+          // Se fallisce, proviamo a connetterci direttamente all'IP con più metodi
+          try {
+            // Approccio alternativo: connessione diretta all'IP
+            this.logger.info(`Tentativo alternativo di connessione a ${node.host}:${node.port}`);
+            
+            // Prova a connettersi senza specificare il PeerId
+            const addr = `/ip4/${node.host}/tcp/${node.port}`;
+            const conn = await this.node.dial(addr);
+            
+            if (conn) {
+              this.logger.info(`Connesso al bootstrap node con metodo alternativo: ${node.id}`);
+              connectedCount++;
+            }
+          } catch (altError) {
+            this.logger.warn(`Anche il tentativo alternativo è fallito: ${altError.message}`);
+          }
         }
       }
 
-      this.logger.info(`Connesso a ${connectedCount} di ${activeNodes.length} nodi bootstrap`);
+      this.logger.info(`Connesso a ${connectedCount} di ${bootstrapNodes.length} nodi bootstrap`);
 
       if (connectedCount === 0) {
         this.logger.warn(
@@ -1444,6 +1507,37 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
       }
     } catch (error) {
       this.logger.error(`Errore nella connessione ai nodi bootstrap: ${error.message}`);
+    }
+  }
+
+  /**
+   * Ottiene l'indirizzo IP locale della macchina
+   * @private
+   * @returns {string} Indirizzo IP locale
+   */
+  getLocalIpAddress() {
+    try {
+      const os = require('os');
+      const networkInterfaces = os.networkInterfaces();
+      
+      // Cerca un'interfaccia non-localhost IPv4
+      for (const interfaceName in networkInterfaces) {
+        const interfaces = networkInterfaces[interfaceName];
+        for (const iface of interfaces) {
+          // Prendi solo gli indirizzi IPv4 che non sono loopback e non sono dell'interfaccia Docker
+          if (iface.family === 'IPv4' && !iface.internal && !interfaceName.startsWith('vEthernet') && !interfaceName.startsWith('Docker')) {
+            this.logger.info(`Trovato indirizzo IP locale: ${iface.address} (${interfaceName})`);
+            return iface.address;
+          }
+        }
+      }
+      
+      // Fallback: usa un indirizzo generico
+      this.logger.warn('Nessun indirizzo IP locale trovato, uso localhost');
+      return '127.0.0.1';
+    } catch (error) {
+      this.logger.error(`Errore nel recupero dell'indirizzo IP locale: ${error.message}`);
+      return '127.0.0.1';
     }
   }
 }
