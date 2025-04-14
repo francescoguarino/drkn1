@@ -272,12 +272,19 @@ export class NetworkManager extends EventEmitter {
       // Avvia il nodo libp2p
       await this.node.start();
       this.logger.info(`Nodo libp2p avviato con peerId: ${this.node.peerId.toString()}`);
-      this.logger.info(
-        `Indirizzi di ascolto: ${this.node
-          .getMultiaddrs()
-          .map(addr => addr.toString())
-          .join(', ')}`
-      );
+      
+      // Logging dettagliato degli indirizzi di ascolto
+      const listenAddrs = this.node.getMultiaddrs();
+      this.logger.info(`Indirizzi di ascolto (${listenAddrs.length}):`);
+      listenAddrs.forEach(addr => {
+        this.logger.info(`- ${addr.toString()}`);
+      });
+      
+      // Aggiungi un handler specifico per connessioni in entrata
+      this.node.connectionManager.addEventListener('connection:open', (event) => {
+        const conn = event.detail;
+        this.logger.info(`📥 CONNESSIONE IN ENTRATA da: ${conn.remotePeer.toString()} (${conn.remoteAddr.toString()})`);
+      });
 
       // Avvia la DHT
       await this.dht.start(this.node);
@@ -934,12 +941,15 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
       let connectedCount = 0;
       for (const node of bootstrapNodes) {
         try {
-          this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id}`);
+          // Creo il multiaddr completo per la connessione
+          const multiaddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`;
+          this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id} (${multiaddr})`);
 
           // Aggiungi un piccolo ritardo tra i tentativi
           await new Promise(resolve => setTimeout(resolve, 1000));
 
-          await this.node.dial(node.id);
+          // Usa il multiaddr completo invece dell'ID
+          await this.node.dial(multiaddr);
           this.logger.info(`Connesso al bootstrap node: ${node.id}`);
           connectedCount++;
         } catch (error) {
@@ -1416,8 +1426,24 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
         
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
-            await this.node.dial(peer);
-            this.logger.info(`✅ Connesso al peer: ${peer}`);
+            // Se il peer è già in formato multiaddr, usalo direttamente
+            // altrimenti prova a estrarre i componenti e formattarlo
+            let multiaddr = peer;
+            if (!peer.startsWith('/ip4/') && !peer.startsWith('/dns4/')) {
+              try {
+                // Prova a estrarre componenti da un oggetto
+                const peerParts = peer.match(/ip4\/([^\/]+)\/tcp\/(\d+)\/p2p\/([^\/]+)/);
+                if (peerParts) {
+                  multiaddr = `/ip4/${peerParts[1]}/tcp/${peerParts[2]}/p2p/${peerParts[3]}`;
+                }
+              } catch (e) {
+                this.logger.warn(`Impossibile parsare il formato peer: ${peer}`);
+              }
+            }
+            
+            this.logger.debug(`Tentativo di connessione con multiaddr: ${multiaddr}`);
+            await this.node.dial(multiaddr);
+            this.logger.info(`✅ Connesso al peer: ${multiaddr}`);
             return true;
           } catch (error) {
             this.logger.warn(`Tentativo ${attempt}/${maxRetries} fallito: ${error.message}`);
