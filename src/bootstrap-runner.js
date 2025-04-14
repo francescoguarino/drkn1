@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import { displayBootstrapBanner } from './utils/banner.js';
 import { NodeStorage } from './utils/NodeStorage.js';
 import { addBootstrapNode } from './config/bootstrap-nodes.js';
+import { exec } from 'child_process';
 
 // Inizializzazione logger
 const logger = new Logger('BootstrapRunner');
@@ -299,7 +300,6 @@ async function testBootstrapConnection(node) {
     if (!ip) {
       try {
         // Tenta di ottenere l'IP pubblico
-        const { exec } = require('child_process');
         const getIP = () => new Promise((resolve, reject) => {
           exec('curl -s http://checkip.amazonaws.com || curl -s http://ifconfig.me', (error, stdout) => {
             if (error) reject(error);
@@ -329,7 +329,6 @@ async function testBootstrapConnection(node) {
     
     // Verifica se la porta è aperta usando un semplice controllo HTTP
     const testPort = (port) => new Promise((resolve) => {
-      const { exec } = require('child_process');
       exec(`nc -zv -w5 localhost ${port}`, (error, stdout, stderr) => {
         if (error) {
           logger.warn(`Porta ${port} non sembra essere aperta localmente: ${stderr}`);
