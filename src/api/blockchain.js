@@ -49,6 +49,7 @@ router.get("/blocks/:hash", checkNodeActive, (req, res) => {
       return res.status(404).json({
         error: "Blocco non trovato",
       });
+      
     }
 
     res.json(block);
