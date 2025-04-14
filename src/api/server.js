@@ -186,7 +186,7 @@ export class APIServer {
             hashrate: this.node.miner?.getHashrate?.() || 0
           },
           mempool: {
-            transactions: this.node.mempool?.getSize() || 0
+            transactions: this.node.mempool ? (this.node.mempool.size || this.node.mempool.getSize?.() || 0) : 0
           }
         });
       } catch (error) {
@@ -248,7 +248,27 @@ export class APIServer {
           return res.status(503).json({ error: 'Mempool non disponibile' });
         }
 
-        const transactions = this.node.mempool.getTransactions();
+        let transactions = [];
+        
+        // Prova diversi metodi per accedere alle transazioni nella mempool
+        if (typeof this.node.mempool.getTransactions === 'function') {
+          transactions = this.node.mempool.getTransactions();
+        } else if (this.node.mempool.transactions) {
+          // Se la mempool ha una proprietà transactions, usala
+          transactions = Array.isArray(this.node.mempool.transactions) 
+            ? this.node.mempool.transactions 
+            : Object.values(this.node.mempool.transactions);
+        } else if (this.node.blockchain && this.node.blockchain.mempool) {
+          // Prova ad accedere alla mempool attraverso blockchain
+          if (typeof this.node.blockchain.mempool.values === 'function') {
+            transactions = Array.from(this.node.blockchain.mempool.values());
+          } else if (this.node.blockchain.mempool.transactions) {
+            transactions = Array.isArray(this.node.blockchain.mempool.transactions)
+              ? this.node.blockchain.mempool.transactions
+              : Object.values(this.node.blockchain.mempool.transactions);
+          }
+        }
+        
         res.json({ transactions });
       } catch (error) {
         this.logger.error(`Errore nel recupero delle transazioni: ${error.message}`);
