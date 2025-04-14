@@ -221,9 +221,15 @@ export class NetworkManager extends EventEmitter {
           // Crea il nodo libp2p
           this.node = await this._createLibp2pNode(port);
 
+          // Verifica che il nodo sia stato creato correttamente
+          if (!this.node) {
+            throw new Error("Creazione del nodo libp2p fallita, il nodo è undefined");
+          }
+
           // Se arriviamo qui, il nodo è stato creato con successo
           success = true;
         } catch (error) {
+          this.logger.error(`Errore nella creazione del nodo: ${error.message}`);
           if (error.message.includes('could not listen') || error.code === 'EADDRINUSE') {
             this.logger.warn(`Porta ${port} occupata, tentativo con porta alternativa...`);
             // Prova con una porta casuale tra 10000 e 65000
@@ -253,38 +259,61 @@ export class NetworkManager extends EventEmitter {
       this.logger.info(`PeerId utilizzato: ${peerId.toString()}`);
       this.logger.info(`nodeId utilizzato: ${this.nodeId}`);
 
-      // Eventi del nodo
-      this.node.addEventListener('peer:connect', evt => {
-        const connectedPeerId = evt.detail.toString();
-        this.logger.info(`Connesso al peer: ${connectedPeerId}`);
-        this.peers.add(connectedPeerId);
-        this.stats.activeConnections++;
-        this.stats.totalConnections++;
-      });
+      // Verifica che this.node esista prima di aggiungere event listeners
+      if (!this.node) {
+        throw new Error("this.node è undefined, impossibile procedere");
+      }
 
-      this.node.addEventListener('peer:disconnect', evt => {
-        const disconnectedPeerId = evt.detail.toString();
-        this.logger.info(`Disconnesso dal peer: ${disconnectedPeerId}`);
-        this.peers.delete(disconnectedPeerId);
-        this.stats.activeConnections--;
-      });
+      // Eventi del nodo
+      try {
+        this.node.addEventListener('peer:connect', evt => {
+          const connectedPeerId = evt.detail.toString();
+          this.logger.info(`Connesso al peer: ${connectedPeerId}`);
+          this.peers.add(connectedPeerId);
+          this.stats.activeConnections++;
+          this.stats.totalConnections++;
+        });
+
+        this.node.addEventListener('peer:disconnect', evt => {
+          const disconnectedPeerId = evt.detail.toString();
+          this.logger.info(`Disconnesso dal peer: ${disconnectedPeerId}`);
+          this.peers.delete(disconnectedPeerId);
+          this.stats.activeConnections--;
+        });
+      } catch (error) {
+        this.logger.error(`Errore nell'impostazione degli event listeners: ${error.message}`);
+        throw error;
+      }
 
       // Avvia il nodo libp2p
-      await this.node.start();
-      this.logger.info(`Nodo libp2p avviato con peerId: ${this.node.peerId.toString()}`);
-      
-      // Logging dettagliato degli indirizzi di ascolto
-      const listenAddrs = this.node.getMultiaddrs();
-      this.logger.info(`Indirizzi di ascolto (${listenAddrs.length}):`);
-      listenAddrs.forEach(addr => {
-        this.logger.info(`- ${addr.toString()}`);
-      });
-      
-      // Aggiungi un handler specifico per connessioni in entrata
-      this.node.connectionManager.addEventListener('connection:open', (event) => {
-        const conn = event.detail;
-        this.logger.info(`📥 CONNESSIONE IN ENTRATA da: ${conn.remotePeer.toString()} (${conn.remoteAddr.toString()})`);
-      });
+      try {
+        await this.node.start();
+        this.logger.info(`Nodo libp2p avviato con peerId: ${this.node.peerId.toString()}`);
+        
+        // Logging dettagliato degli indirizzi di ascolto
+        const listenAddrs = this.node.getMultiaddrs();
+        this.logger.info(`Indirizzi di ascolto (${listenAddrs.length}):`);
+        listenAddrs.forEach(addr => {
+          this.logger.info(`- ${addr.toString()}`);
+        });
+        
+        // Aggiungi un handler specifico per connessioni in entrata
+        try {
+          if (this.node.connectionManager) {
+            this.node.connectionManager.addEventListener('connection:open', (event) => {
+              const conn = event.detail;
+              this.logger.info(`📥 CONNESSIONE IN ENTRATA da: ${conn.remotePeer.toString()} (${conn.remoteAddr.toString()})`);
+            });
+          } else {
+            this.logger.warn("connectionManager non disponibile, impossibile registrare l'evento 'connection:open'");
+          }
+        } catch (error) {
+          this.logger.error(`Errore nell'aggiunta dell'event listener per connessioni in entrata: ${error.message}`);
+        }
+      } catch (error) {
+        this.logger.error(`Errore nell'avvio del nodo: ${error.message}`);
+        throw error;
+      }
 
       // Avvia la DHT
       await this.dht.start(this.node);
@@ -1560,79 +1589,64 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
       throw new Error(`Porta P2P non valida: ${port}`);
     }
     
-    // Configura libp2p con impostazioni ottimizzate per la connettività pubblica
-    const node = await createLibp2p({
-      // Usa il PeerId già creato e salvato in this.peerId
-      peerId: this.peerId,
-      
-      // Configura gli indirizzi da ascoltare e annunciare
-      addresses: {
-        // Ascolta su tutte le interfacce
-        listen: [
-          `/ip4/0.0.0.0/tcp/${port}`
+    try {
+      // Configura libp2p con impostazioni ottimizzate per la connettività pubblica
+      const node = await createLibp2p({
+        // Usa il PeerId già creato e salvato in this.peerId
+        peerId: this.peerId,
+        
+        // Configura gli indirizzi da ascoltare e annunciare
+        addresses: {
+          // Ascolta su tutte le interfacce
+          listen: [
+            `/ip4/0.0.0.0/tcp/${port}`
+          ],
+          // Annuncia solo l'IP pubblico
+          announce: [
+            `/ip4/${localIp}/tcp/${port}`
+          ]
+        },
+        
+        // Configura i trasporti
+        transports: [
+          tcp() // Usa il trasporto TCP
         ],
-        // Annuncia solo l'IP pubblico
-        announce: [
-          `/ip4/${localIp}/tcp/${port}`
-        ]
-      },
+        
+        // Configura la crittografia della connessione
+        connectionEncryption: [
+          noise() // Protocollo NOISE per la crittografia
+        ],
+        
+        // Configura la negoziazione del protocollo
+        streamMuxers: [
+          mplex() // Multiplexer per gestire multiple stream 
+        ],
+        
+        // Configurazione della connettività
+        connectionManager: {
+          minConnections: 3, // Mantieni almeno 3 connessioni
+          maxConnections: 50, // Limite massimo connessioni
+          pollInterval: 5000, // Controlla ogni 5 secondi
+          // Gestione connessioni più aggressiva
+          autoDial: true,
+        },
+        
+        // Configura il comportamento dei dialer
+        dialer: {
+          maxParallelDials: 10, // Aumenta i dial paralleli per accelerare
+          maxDialsPerPeer: 5, // Più tentativi per peer
+          dialTimeout: 10000, // 10 secondi timeout per dial
+        }
+      });
       
-      // Configura i trasporti
-      transports: [
-        tcp() // Usa il trasporto TCP
-      ],
+      this.logger.info(`Nodo libp2p configurato sulla porta ${port}`);
+      this.logger.debug(`PeerId utilizzato: ${node.peerId.toString()}`);
       
-      // Configura la crittografia della connessione
-      connectionEncryption: [
-        noise() // Protocollo NOISE per la crittografia
-      ],
-      
-      // Configura la negoziazione del protocollo
-      streamMuxers: [
-        mplex() // Multiplexer per gestire multiple stream 
-      ],
-      
-      // Configura il servizio di pubsub
-      services: {
-        autoNAT: autoNAT(),
-      },
-      
-      // Configurazione della connettività
-      connectionManager: {
-        minConnections: 3, // Mantieni almeno 3 connessioni
-        maxConnections: 50, // Limite massimo connessioni
-        pollInterval: 5000, // Controlla ogni 5 secondi
-        // Gestione connessioni più aggressiva
-        autoDial: true,
-        autoDialPriority: 100,
-        maxParallelDials: 10
-      },
-      
-      // Configura il comportamento dei dialer
-      dialer: {
-        maxParallelDials: 10, // Aumenta i dial paralleli per accelerare
-        maxDialsPerPeer: 5, // Più tentativi per peer
-        dialTimeout: 10000, // 10 secondi timeout per dial
-        addressSorter: (multiaddrs) => multiaddrs.sort(() => Math.random() - 0.5) // Randomizza per varietà
-      },
-      
-      // Altri parametri
-      connectionGater: {
-        // Disabilitiamo il filtro per un ambiente locale controllato
-        denyDialMultiaddr: () => false,
-        denyDialPeer: () => false,
-        denyInboundConnection: () => false,
-        denyOutboundConnection: () => false,
-        denyInboundEncryptedConnection: () => false,
-        denyOutboundEncryptedConnection: () => false,
-        denyInboundUpgradedConnection: () => false,
-        denyOutboundUpgradedConnection: () => false
-      }
-    });
-    
-    this.logger.info(`Nodo libp2p configurato sulla porta ${port}`);
-    this.logger.debug(`PeerId utilizzato: ${node.peerId.toString()}`);
-    
-    return node;
+      return node;
+    } catch (error) {
+      this.logger.error(`Errore nella creazione del nodo libp2p: ${error.message}`);
+      this.logger.error(error.stack);
+      throw error;
+    }
   }
 }
