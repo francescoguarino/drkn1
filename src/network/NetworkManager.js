@@ -1486,6 +1486,12 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
    */
   getLocalIpAddress() {
     try {
+      // Controlla se è stato impostato un IP pubblico tramite variabile d'ambiente
+      if (process.env.PUBLIC_IP) {
+        this.logger.info(`Usando indirizzo IP pubblico da variabile d'ambiente: ${process.env.PUBLIC_IP}`);
+        return process.env.PUBLIC_IP;
+      }
+      
       const networkInterfaces = os.networkInterfaces();
       
       // Cerca un'interfaccia non-localhost IPv4
