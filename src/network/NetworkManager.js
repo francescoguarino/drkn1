@@ -20,6 +20,9 @@ import {
   toMultiAddr,
   getAllMultiaddrs 
 } from '../config/bootstrap-nodes.js';
+import os from 'os';
+import * as peerIdModule from '@libp2p/peer-id';
+import { autoNAT } from '@libp2p/autonat';
 
 export class NetworkManager extends EventEmitter {
   constructor(config, storage) {
@@ -216,39 +219,7 @@ export class NetworkManager extends EventEmitter {
           this.logger.info(`Tentativo ${attemptCount}/${maxAttempts} di avvio sulla porta ${port}`);
 
           // Crea il nodo libp2p
-          this.node = await createLibp2p({
-            peerId, // Usiamo il peerId ottenuto
-            addresses: {
-              listen: [
-                `/ip4/0.0.0.0/tcp/${port}`, // Ascolta su tutte le interfacce
-                `/ip4/127.0.0.1/tcp/${port}` // Ascolta esplicitamente su localhost
-              ],
-              // Forziamo l'annuncio di indirizzi locali e remoti per migliorare la connettività
-              announce: [
-                `/ip4/127.0.0.1/tcp/${port}`, // Annuncia localhost
-                `/ip4/${this.getLocalIpAddress()}/tcp/${port}` // Annuncia IP locale
-              ]
-            },
-            transports: [tcp()],
-            streamMuxers: [mplex()],
-            connectionEncryption: [noise()],
-            connectionManager: {
-              maxConnections: this.config.network.maxConnections || 50,
-              minConnections: this.config.network.minConnections || 5,
-              pollInterval: 2000,
-              autoDialInterval: 5000,
-              // Disabilitiamo la protezione NAT per connessioni locali
-              allowLocalIPAddresses: true
-            },
-            services: {
-              bootstrap: bootstrap({
-                list: [
-                  `/ip4/51.89.148.92/tcp/6001/p2p/12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F`,
-                  `/ip4/135.125.232.233/tcp/6001/p2p/12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK`
-                ]
-              })
-            }
-          });
+          this.node = await this._createLibp2pNode(port);
 
           // Se arriviamo qui, il nodo è stato creato con successo
           success = true;
@@ -1395,149 +1366,241 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
    */
   async _connectToBootstrapPeers() {
     try {
-      // Ottieni i nodi bootstrap dalla configurazione o dall'ambiente
-      const configNodes = this.config.p2p?.bootstrapNodes || [];
-      const envNodesStr = process.env.BOOTSTRAP_NODES;
+      this.logger.debug('Tentativo di connessione ai bootstrap peers...');
       
-      let bootstrapNodes = [];
+      // Array per contenere tutti i bootstrap peers
+      let bootstrapPeers = [];
       
-      // Aggiungi i nodi dalla configurazione
-      if (configNodes && configNodes.length > 0) {
-        bootstrapNodes = [...configNodes];
+      // 1. Prova a ottenere bootstrap peers dalle variabili d'ambiente
+      const p2pBootstrapPeers = process.env.P2P_BOOTSTRAP_PEERS;
+      if (p2pBootstrapPeers) {
+        this.logger.debug(`Bootstrap peers da env: ${p2pBootstrapPeers}`);
+        const peers = p2pBootstrapPeers.split(',');
+        bootstrapPeers.push(...peers);
       }
       
-      // Aggiungi i nodi dall'ambiente
-      if (envNodesStr) {
+      // 2. Prova a ottenere bootstrap peers dalla config BOOTSTRAP_NODES
+      const bootstrapNodesString = process.env.BOOTSTRAP_NODES;
+      if (bootstrapNodesString) {
         try {
-          const envNodes = JSON.parse(envNodesStr);
-          bootstrapNodes = [...bootstrapNodes, ...envNodes];
+          const bootstrapNodes = JSON.parse(bootstrapNodesString);
+          this.logger.debug(`BOOTSTRAP_NODES configurati: ${JSON.stringify(bootstrapNodes)}`);
+          
+          // Converti i nodi in formato multiaddr
+          for (const node of bootstrapNodes) {
+            if (node.host && node.port && node.id) {
+              const multiaddr = `/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`;
+              this.logger.debug(`Generato multiaddr: ${multiaddr}`);
+              bootstrapPeers.push(multiaddr);
+            }
+          }
         } catch (error) {
-          this.logger.error(`Errore nel parsing dei bootstrap nodes: ${error.message}`);
+          this.logger.error(`Errore nel parsing di BOOTSTRAP_NODES: ${error.message}`);
         }
       }
       
-      // Aggiungi i nodi bootstrap predefiniti dal sistema
-      const activeNodes = getActiveBootstrapNodes();
-      bootstrapNodes = [...bootstrapNodes, ...activeNodes];
+      // 3. Controlla se abbiamo peer unici
+      const uniquePeers = [...new Set(bootstrapPeers)];
+      this.logger.info(`Tentativo di connessione a ${uniquePeers.length} bootstrap peers`);
       
-      // Rimuovi duplicati basati sull'ID
-      bootstrapNodes = bootstrapNodes.filter((node, index, self) => 
-        index === self.findIndex(n => n.id === node.id)
-      );
-      
-      if (bootstrapNodes.length === 0) {
-        this.logger.warn('Nessun nodo bootstrap configurato, funzionamento in modalità standalone');
+      // Se non ci sono bootstrap peers, termina
+      if (uniquePeers.length === 0) {
+        this.logger.warn('Nessun bootstrap peer configurato');
         return;
       }
-
-      this.logger.info(`Tentativo di connessione a ${bootstrapNodes.length} nodi bootstrap...`);
-
-      let connectedCount = 0;
-      for (const node of bootstrapNodes) {
-        // Salta se è il nodo corrente
-        if (node.id === this.peerId.toString()) {
-          this.logger.info(`Saltando il nodo bootstrap con lo stesso ID del nodo corrente: ${node.id}`);
-          continue;
+      
+      // 4. Tenta la connessione a ciascun peer con più tentativi
+      const maxRetries = 3;
+      const connectionPromises = uniquePeers.map(async (peer) => {
+        this.logger.debug(`Tentativo di connessione a ${peer}...`);
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            await this.node.dial(peer);
+            this.logger.info(`✅ Connesso al peer: ${peer}`);
+            return true;
+          } catch (error) {
+            this.logger.warn(`Tentativo ${attempt}/${maxRetries} fallito: ${error.message}`);
+            
+            if (attempt < maxRetries) {
+              // Aspetta prima di riprovare (backoff esponenziale)
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            }
+          }
         }
         
-        try {
-          this.logger.info(`Tentativo di connessione al bootstrap node: ${node.id} (${node.host}:${node.port})`);
-
-          // Creiamo un array di possibili multiaddress per migliorare le chance di connessione
-          const multiaddrs = [];
-          
-          // Prova con l'indirizzo originale
-          multiaddrs.push(`/ip4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
-          
-          // Se l'host è un IP pubblico, prova anche con localhost e IP locale
-          if (node.host !== '127.0.0.1' && node.host !== 'localhost') {
-            multiaddrs.push(`/ip4/127.0.0.1/tcp/${node.port}/p2p/${node.id}`);
-            const localIp = this.getLocalIpAddress();
-            if (localIp !== '127.0.0.1') {
-              multiaddrs.push(`/ip4/${localIp}/tcp/${node.port}/p2p/${node.id}`);
-            }
-          }
-          
-          // Aggiungi gli indirizzi al peerStore
-          for (const addr of multiaddrs) {
-            await this.node.peerStore.addressBook.add(node.id, [addr]);
-          }
-
-          // Aggiungi un piccolo ritardo tra i tentativi
-          await new Promise(resolve => setTimeout(resolve, 500));
-
-          // Tenta la connessione diretta
-          await this.node.dial(node.id, { priority: 1 });
-          this.logger.info(`Connesso al bootstrap node: ${node.id}`);
-          connectedCount++;
-          
-          // Se la connessione ha avuto successo, possiamo passare al nodo successivo
-          continue;
-        } catch (error) {
-          this.logger.warn(
-            `Non è stato possibile connettersi al bootstrap node: ${node.id}`,
-            error.message
-          );
-          
-          // Se fallisce, proviamo a connetterci direttamente all'IP con più metodi
-          try {
-            // Approccio alternativo: connessione diretta all'IP
-            this.logger.info(`Tentativo alternativo di connessione a ${node.host}:${node.port}`);
-            
-            // Prova a connettersi senza specificare il PeerId
-            const addr = `/ip4/${node.host}/tcp/${node.port}`;
-            const conn = await this.node.dial(addr);
-            
-            if (conn) {
-              this.logger.info(`Connesso al bootstrap node con metodo alternativo: ${node.id}`);
-              connectedCount++;
-            }
-          } catch (altError) {
-            this.logger.warn(`Anche il tentativo alternativo è fallito: ${altError.message}`);
-          }
-        }
-      }
-
-      this.logger.info(`Connesso a ${connectedCount} di ${bootstrapNodes.length} nodi bootstrap`);
-
-      if (connectedCount === 0) {
-        this.logger.warn(
-          'Impossibile connettersi a nessun nodo bootstrap, funzionamento in modalità isolata'
-        );
+        this.logger.error(`❌ Impossibile connettersi a ${peer} dopo ${maxRetries} tentativi`);
+        return false;
+      });
+      
+      // Aspetta che tutti i tentativi di connessione siano completati
+      const results = await Promise.all(connectionPromises);
+      const successCount = results.filter(result => result).length;
+      
+      this.logger.info(`Connesso a ${successCount}/${uniquePeers.length} bootstrap peers`);
+      
+      // Configura reconnect automatico
+      if (successCount > 0) {
+        setInterval(() => {
+          this._checkAndReconnect(uniquePeers);
+        }, 30000); // Controlla ogni 30 secondi
       }
     } catch (error) {
-      this.logger.error(`Errore nella connessione ai nodi bootstrap: ${error.message}`);
+      this.logger.error(`Errore nella connessione ai bootstrap peers: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Controlla e riconnette ai peer disconnessi
+   * @private
+   * @param {Array<string>} peers - Lista di peer da controllare
+   */
+  async _checkAndReconnect(peers) {
+    try {
+      const connectedPeers = this.node.getPeers();
+      const connectedPeerIds = new Set(connectedPeers.map(peer => peer.toString()));
+      
+      for (const peer of peers) {
+        try {
+          const peerId = peer.split('/p2p/')[1];
+          
+          // Se il peer non è connesso, tenta di riconnettersi
+          if (peerId && !connectedPeerIds.has(peerId)) {
+            this.logger.debug(`Tentativo di riconnessione a ${peer}...`);
+            await this.node.dial(peer);
+            this.logger.info(`✅ Riconnesso al peer: ${peer}`);
+          }
+        } catch (error) {
+          this.logger.warn(`Errore nella riconnessione a ${peer}: ${error.message}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Errore nel controllo delle connessioni: ${error.message}`);
     }
   }
 
   /**
-   * Ottiene l'indirizzo IP locale della macchina
+   * Ottiene l'indirizzo IP della macchina preferendo indirizzi pubblici o non-localhost
    * @private
-   * @returns {string} Indirizzo IP locale
+   * @returns {string} Indirizzo IP
    */
   getLocalIpAddress() {
     try {
-      const os = require('os');
       const networkInterfaces = os.networkInterfaces();
       
       // Cerca un'interfaccia non-localhost IPv4
       for (const interfaceName in networkInterfaces) {
         const interfaces = networkInterfaces[interfaceName];
         for (const iface of interfaces) {
-          // Prendi solo gli indirizzi IPv4 che non sono loopback e non sono dell'interfaccia Docker
-          if (iface.family === 'IPv4' && !iface.internal && !interfaceName.startsWith('vEthernet') && !interfaceName.startsWith('Docker')) {
-            this.logger.info(`Trovato indirizzo IP locale: ${iface.address} (${interfaceName})`);
+          // Prendi solo gli indirizzi IPv4 che non sono loopback e non sono di interfacce virtuali
+          if (iface.family === 'IPv4' && !iface.internal && 
+              !interfaceName.startsWith('vEthernet') && 
+              !interfaceName.startsWith('Docker') && 
+              !interfaceName.startsWith('WSL')) {
+            this.logger.info(`Trovato indirizzo IP: ${iface.address} (${interfaceName})`);
             return iface.address;
           }
         }
       }
       
-      // Fallback: usa un indirizzo generico
-      this.logger.warn('Nessun indirizzo IP locale trovato, uso localhost');
-      return '127.0.0.1';
+      // Fallback: usa l'indirizzo pubblico
+      this.logger.warn('Nessun indirizzo IP non-locale trovato, uso 0.0.0.0');
+      return '0.0.0.0';
     } catch (error) {
-      this.logger.error(`Errore nel recupero dell'indirizzo IP locale: ${error.message}`);
-      return '127.0.0.1';
+      this.logger.error(`Errore nel recupero dell'indirizzo IP: ${error.message}`);
+      return '0.0.0.0';
     }
+  }
+
+  /**
+   * Crea e configura un nodo libp2p
+   * @private
+   * @param {number} port - porta P2P
+   * @returns {Promise<libp2p>} Istanza del nodo libp2p
+   */
+  async _createLibp2pNode(port) {
+    const localIp = this.getLocalIpAddress();
+    this.logger.debug(`Indirizzo IP locale trovato: ${localIp}`);
+    
+    // Verifica che le porte siano numeri validi
+    if (isNaN(port)) {
+      this.logger.error(`Porta P2P non valida: ${port}`);
+      throw new Error(`Porta P2P non valida: ${port}`);
+    }
+    
+    // Configura libp2p con impostazioni ottimizzate per la connettività pubblica
+    const node = await createLibp2p({
+      // Usa il PeerId già creato e salvato in this.peerId
+      peerId: this.peerId,
+      
+      // Configura gli indirizzi da ascoltare e annunciare
+      addresses: {
+        // Ascolta su tutte le interfacce
+        listen: [
+          `/ip4/0.0.0.0/tcp/${port}`
+        ],
+        // Annuncia solo l'IP pubblico
+        announce: [
+          `/ip4/${localIp}/tcp/${port}`
+        ]
+      },
+      
+      // Configura i trasporti
+      transports: [
+        tcp() // Usa il trasporto TCP
+      ],
+      
+      // Configura la crittografia della connessione
+      connectionEncryption: [
+        noise() // Protocollo NOISE per la crittografia
+      ],
+      
+      // Configura la negoziazione del protocollo
+      streamMuxers: [
+        mplex() // Multiplexer per gestire multiple stream 
+      ],
+      
+      // Configura il servizio di pubsub
+      services: {
+        autoNAT: autoNAT(),
+      },
+      
+      // Configurazione della connettività
+      connectionManager: {
+        minConnections: 3, // Mantieni almeno 3 connessioni
+        maxConnections: 50, // Limite massimo connessioni
+        pollInterval: 5000, // Controlla ogni 5 secondi
+        // Gestione connessioni più aggressiva
+        autoDial: true,
+        autoDialPriority: 100,
+        maxParallelDials: 10
+      },
+      
+      // Configura il comportamento dei dialer
+      dialer: {
+        maxParallelDials: 10, // Aumenta i dial paralleli per accelerare
+        maxDialsPerPeer: 5, // Più tentativi per peer
+        dialTimeout: 10000, // 10 secondi timeout per dial
+        addressSorter: (multiaddrs) => multiaddrs.sort(() => Math.random() - 0.5) // Randomizza per varietà
+      },
+      
+      // Altri parametri
+      connectionGater: {
+        // Disabilitiamo il filtro per un ambiente locale controllato
+        denyDialMultiaddr: () => false,
+        denyDialPeer: () => false,
+        denyInboundConnection: () => false,
+        denyOutboundConnection: () => false,
+        denyInboundEncryptedConnection: () => false,
+        denyOutboundEncryptedConnection: () => false,
+        denyInboundUpgradedConnection: () => false,
+        denyOutboundUpgradedConnection: () => false
+      }
+    });
+    
+    this.logger.info(`Nodo libp2p configurato sulla porta ${port}`);
+    this.logger.debug(`PeerId utilizzato: ${node.peerId.toString()}`);
+    
+    return node;
   }
 }
