@@ -53,17 +53,43 @@ export class NodeStorage {
         lastUpdated: new Date().toISOString()
       };
 
-      // Gestione speciale del PeerId per preservare le chiavi
+      // Gestione speciale del PeerId per preservare le chiavi nel formato corretto
       if (nodeInfo.peerId) {
-        // Se il nuovo PeerId è un oggetto con id, privKey e pubKey, usalo direttamente
+        // Se il nuovo PeerId è un oggetto con id, privKey e pubKey
         if (
           typeof nodeInfo.peerId === 'object' &&
           nodeInfo.peerId.id &&
-          nodeInfo.peerId.privKey &&
-          nodeInfo.peerId.pubKey
+          nodeInfo.peerId.privKey 
         ) {
+          // Salviamo in un formato compatibile con libp2p
+          this.logger.info(`Salvataggio PeerId nel formato compatibile con libp2p: ${nodeInfo.peerId.id}`);
+          
+          // Formato conforme a @libp2p/peer-id-factory
+          mergedInfo.peerId = {
+            id: nodeInfo.peerId.id,
+            // Salva la chiave privata come stringa base64
+            privKey: typeof nodeInfo.peerId.privKey === 'string' 
+              ? nodeInfo.peerId.privKey 
+              : Buffer.from(nodeInfo.peerId.privKey).toString('base64'),
+            // Salva la chiave pubblica come stringa base64
+            pubKey: nodeInfo.peerId.pubKey 
+              ? (typeof nodeInfo.peerId.pubKey === 'string'
+                ? nodeInfo.peerId.pubKey
+                : Buffer.from(nodeInfo.peerId.pubKey).toString('base64'))
+              : null,
+            // Aggiungi metadati che potrebbero essere utili
+            type: 'Ed25519',
+            format: 'base64'
+          };
+          
           this.logger.info(`Salvato PeerId completo con ID: ${nodeInfo.peerId.id}`);
-          mergedInfo.peerId = nodeInfo.peerId;
+          this.logger.debug(`PeerId salvato con formato: ${JSON.stringify({
+            id: mergedInfo.peerId.id,
+            hasPrivKey: !!mergedInfo.peerId.privKey,
+            privKeyLength: mergedInfo.peerId.privKey ? mergedInfo.peerId.privKey.length : 0,
+            hasFormat: !!mergedInfo.peerId.format,
+            type: mergedInfo.peerId.type
+          })}`);
         }
         // Se è solo un ID stringa, mantieni le chiavi esistenti se disponibili
         else if (typeof nodeInfo.peerId === 'string') {
@@ -71,8 +97,7 @@ export class NodeStorage {
             existingInfo.peerId &&
             typeof existingInfo.peerId === 'object' &&
             existingInfo.peerId.id &&
-            existingInfo.peerId.privKey &&
-            existingInfo.peerId.pubKey
+            existingInfo.peerId.privKey
           ) {
             this.logger.info(`Mantenute chiavi esistenti per PeerId: ${nodeInfo.peerId}`);
             mergedInfo.peerId = {

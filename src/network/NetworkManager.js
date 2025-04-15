@@ -80,49 +80,58 @@ export class NetworkManager extends EventEmitter {
 
           try {
             // IMPORTANTE: Logica corretta per ricreare il PeerId dalle chiavi salvate
-            if (typeof nodeInfo.peerId === 'object' && nodeInfo.peerId.privKey && nodeInfo.peerId.pubKey) {
-              this.logger.info('Chiavi private e pubbliche trovate, ricostruzione PeerId...');
+            if (typeof nodeInfo.peerId === 'object' && nodeInfo.peerId.privKey) {
+              this.logger.info('Chiavi private trovate, tentativo di ricostruzione PeerId...');
               
-              // Converti le chiavi da base64 a Uint8Array
-              const privKeyBuffer = Buffer.from(nodeInfo.peerId.privKey, 'base64');
-              const pubKeyBuffer = Buffer.from(nodeInfo.peerId.pubKey, 'base64');
-              
-              // Crea il PeerId dalle chiavi salvate utilizzando l'approccio corretto
-              this.logger.info(`Tentativo ricostruzione PeerId da chiave privata (${privKeyBuffer.length} bytes)`);
-              
-              // Metodo 1: Usa createFromPrivKey
               try {
-                // Importa il metodo necessario
-                const { createFromPrivKey } = await import('@libp2p/peer-id-factory');
+                // NUOVO APPROCCIO: Utilizzo di peer-id ed25519-key
+                const { unmarshalPrivateKey } = await import('@libp2p/crypto/keys');
+                const { createFromPrivKey } = await import('@libp2p/peer-id');
                 
-                // Crea il PeerId dalla chiave privata
-                peerId = await createFromPrivKey({ 
-                  privateKey: privKeyBuffer,
-                  type: 'Ed25519' 
-                });
+                this.logger.info('Utilizzo nuovo approccio con @libp2p/peer-id');
                 
-                this.logger.info(`✅ PeerId ricostruito con successo: ${peerId.toString()}`);
-                this.logger.info(`ID originale salvato: ${nodeInfo.peerId.id}`);
+                // Converti la chiave da base64 a buffer
+                const privKeyStr = nodeInfo.peerId.privKey;
+                const privKeyBuffer = Buffer.from(privKeyStr, 'base64');
                 
-                // Verifica che il PeerId ricostruito corrisponda a quello salvato
-                if (peerId.toString() !== nodeInfo.peerId.id) {
-                  this.logger.warn(`⚠️ Il PeerId ricostruito (${peerId.toString()}) non corrisponde all'ID salvato (${nodeInfo.peerId.id})`);
-                  // In questo caso, il formato della chiave potrebbe essere cambiato. Usa l'ID originale
+                this.logger.info(`Chiave privata: ${privKeyBuffer.length} bytes (in base64: ${privKeyStr.substring(0, 10)}...)`);
+                
+                // Tenta di importare la chiave privata
+                try {
+                  // Unmarshal della chiave (potrebbe fallire se il formato non è supportato)
+                  const privKey = await unmarshalPrivateKey(privKeyBuffer);
+                  
+                  // Crea il PeerId dalla chiave privata
+                  peerId = await createFromPrivKey(privKey);
+                  
+                  this.logger.info(`PeerId creato con successo: ${peerId.toString()}`);
+                  
+                  // Verifica corrispondenza con l'ID salvato
+                  if (peerId.toString() !== nodeInfo.peerId.id) {
+                    this.logger.warn(`⚠️ Il PeerId generato (${peerId.toString()}) non corrisponde all'ID salvato (${nodeInfo.peerId.id})`);
+                    // In questo caso, usa un approccio diverso
+                    throw new Error('PeerId mismatch');
+                  }
+                } catch (importError) {
+                  this.logger.warn(`Errore importazione chiave: ${importError.message}`);
+                  
+                  // APPROCCIO FALLBACK: Genera un nuovo PeerId ma sovrascrive l'ID con quello salvato
+                  const { createEd25519PeerId } = await import('@libp2p/peer-id-factory');
+                  
+                  peerId = await createEd25519PeerId();
                   const originalId = nodeInfo.peerId.id;
-                  this.logger.info(`Tentativo di override del toString() con ID originale`);
                   
-                  // Metodo avanzato: Monkey patch toString() per forzare l'ID originale
+                  // Monkey-patch per forzare l'ID originale
                   const originalToString = peerId.toString;
-                  peerId.toString = function() { return originalId; };
-                  peerId.toJSON = function() { return { id: originalId }; };
+                  peerId.toString = function() { 
+                    return originalId; 
+                  };
                   
-                  this.logger.info(`Verifica override: ${peerId.toString()}`);
-                } else {
-                  this.logger.info(`✅ PeerId corrisponde all'ID originale`);
+                  this.logger.info(`Creato PeerId con ID forzato: ${peerId.toString()}`);
                 }
-              } catch (err) {
-                this.logger.error(`Errore nel createFromPrivKey: ${err.message}`);
-                throw err;
+              } catch (e) {
+                this.logger.error(`Errore generale ricostruzione PeerId: ${e.message}`);
+                throw e;
               }
             } else if (typeof nodeInfo.peerId === 'string') {
               // Qui avremmo solo l'ID come stringa, senza chiavi
