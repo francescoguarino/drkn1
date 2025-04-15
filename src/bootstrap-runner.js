@@ -97,6 +97,16 @@ async function runBootstrapNode(options = {}) {
       bannerDisplayed: true
     });
 
+    // Aggiungiamo più log per il debug del PeerId
+    logger.info('==== DEBUG AVVIO NODO BOOTSTRAP ====');
+    logger.info(`ID Nodo: ${config.config.node.id}`);
+    if (savedInfo && savedInfo.peerId) {
+      logger.info(`PeerId salvato: ${savedInfo.peerId.id}`);
+    } else {
+      logger.info('Nessun PeerId salvato trovato');
+    }
+    logger.info('=====================================');
+
     // AGGIUNTO: Registra questo nodo bootstrap nella lista centrale
     // Verrà fatto solo in memoria per ora, ma in futuro si potrebbe implementare
     // un sistema di persistenza più avanzato
@@ -125,18 +135,37 @@ async function runBootstrapNode(options = {}) {
     logger.info(`DRAKON ENTER NODE avviato con successo - ID: ${node.nodeId}`);
     logger.info(`Porta P2P: ${config.config.p2p.port}`);
     logger.info(`Porta API: ${config.config.api.port}`);
+    
+    // Ottieni l'indirizzo IP corrente
+    const publicIp = process.env.PUBLIC_IP || '127.0.0.1';
+    const peerId = node.networkManager.node.peerId.toString();
+    const port = config.config.p2p.port;
+    
+    // Mostra l'indirizzo completo per la connessione
+    logger.info('');
+    logger.info('==== INFORMAZIONI DI CONNESSIONE ====');
+    logger.info(`Indirizzo completo per connessione: /ip4/${publicIp}/tcp/${port}/p2p/${peerId}`);
+    logger.info('Per connettersi a questo nodo bootstrap, utilizzare:');
+    logger.info(`Host: ${publicIp}`);
+    logger.info(`Porta: ${port}`);
+    logger.info(`PeerId: ${peerId}`);
+    logger.info('===================================');
+    logger.info('');
+    
     logger.info(`Nodo di ingresso in ascolto per connessioni...`);
 
-    // Esegui il test di connettività dopo 5 secondi
-    setTimeout(() => {
-      testBootstrapConnection(node)
-        .then(() => {
-          logger.info('Test di connettività completato');
-        })
-        .catch(err => {
-          logger.error('Errore nel test di connettività:', err);
-        });
-    }, 5000);
+    // Aggiungi event listeners per connessioni e disconnessioni
+    node.networkManager.on('peer:connect', () => {
+      logger.info('Peer connesso, stampo riepilogo aggiornato');
+      // Stampa il riepilogo aggiornato con il PeerId corretto
+      node.networkManager._printSummaryTable();
+    });
+
+    node.networkManager.on('peer:disconnect', () => {
+      logger.info('Peer disconnesso, stampo riepilogo aggiornato');
+      // Stampa il riepilogo aggiornato
+      node.networkManager._printSummaryTable();
+    });
 
     // Mantieni il processo in esecuzione
     process.stdin.resume();
@@ -292,66 +321,8 @@ Esempi:
  * Testa se il nodo bootstrap è raggiungibile
  */
 async function testBootstrapConnection(node) {
-  try {
-    logger.info('Test di connettività del nodo bootstrap...');
-    
-    // Ottieni l'indirizzo IP pubblico
-    let ip = process.env.PUBLIC_IP;
-    if (!ip) {
-      try {
-        // Tenta di ottenere l'IP pubblico
-        const getIP = () => new Promise((resolve, reject) => {
-          exec('curl -s http://checkip.amazonaws.com || curl -s http://ifconfig.me', (error, stdout) => {
-            if (error) reject(error);
-            else resolve(stdout.trim());
-          });
-        });
-        ip = await getIP();
-        logger.info(`IP pubblico rilevato: ${ip}`);
-      } catch (e) {
-        logger.warn(`Impossibile determinare IP pubblico: ${e.message}`);
-        ip = '34.72.27.228'; // Fallback all'IP noto
-      }
-    }
-    
-    // Informazioni sul nodo
-    const nodePort = node.config.p2p.port || 6001;
-    const peerId = node.networkManager.peerId.toString();
-    
-    // Costruisci gli indirizzi di test
-    const publicAddr = `/ip4/${ip}/tcp/${nodePort}/p2p/${peerId}`;
-    logger.info(`Indirizzo pubblico da testare: ${publicAddr}`);
-    
-    // Mostra anche la configurazione attuale di ascolto
-    logger.info('Configurazione attuale di ascolto:');
-    const listenAddrs = node.networkManager.node.getMultiaddrs();
-    listenAddrs.forEach(addr => logger.info(`- ${addr.toString()}`));
-    
-    // Verifica se la porta è aperta usando un semplice controllo HTTP
-    const testPort = (port) => new Promise((resolve) => {
-      exec(`nc -zv -w5 localhost ${port}`, (error, stdout, stderr) => {
-        if (error) {
-          logger.warn(`Porta ${port} non sembra essere aperta localmente: ${stderr}`);
-          resolve(false);
-        } else {
-          logger.info(`Porta ${port} è aperta localmente: ${stderr || stdout}`);
-          resolve(true);
-        }
-      });
-    });
-    
-    // Verifica la porta P2P
-    await testPort(nodePort);
-    
-    logger.info(`Test completato. Il nodo bootstrap dovrebbe essere raggiungibile all'indirizzo: ${publicAddr}`);
-    logger.info('Prova ad utilizzare questo indirizzo per connetterti al bootstrap node.');
-    logger.info('Se la connessione fallisce, verifica che le porte siano aperte nel firewall.');
-    
-    return true;
-  } catch (error) {
-    logger.error('Errore durante il test di connettività:', error);
-    return false;
-  }
+  // Test di connettività rimosso
+  return true;
 }
 
 // Se lo script è eseguito direttamente, avvia il nodo bootstrap
