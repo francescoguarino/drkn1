@@ -158,11 +158,29 @@ function ensureRequiredConfigs(config, options) {
   if (!config.p2p) {
     config.p2p = {
       port: options.port || 6001,
-      bootstrapNodes: options.bootstrapNodes || [{ host: '127.0.0.1', port: 6001 }],
+      bootstrapNodes: options.bootstrapNodes || [
+        {
+          host: '34.70.102.121',
+          port: 6001,
+          id: '12D3KooWGtVzgj1XiyG3GoRjEbokUYRxUsXJ225gksLWErNkvcwy'
+        }
+      ],
       protocols: ['/drakon/1.0.0']
     };
   } else if (!config.p2p.protocols) {
     config.p2p.protocols = ['/drakon/1.0.0'];
+  }
+
+  // Se bootstrapNodes è vuoto, aggiungi il nostro nodo bootstrap di default
+  if (!config.p2p.bootstrapNodes || config.p2p.bootstrapNodes.length === 0) {
+    config.p2p.bootstrapNodes = [
+  
+      {
+        host: '34.70.102.121',
+        port: 6001,
+        id: '12D3KooWGtVzgj1XiyG3GoRjEbokUYRxUsXJ225gksLWErNkvcwy'
+      }
+    ];
   }
 
   // Storage

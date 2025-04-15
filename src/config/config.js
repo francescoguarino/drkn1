@@ -25,15 +25,10 @@ const DEFAULT_CONFIG = {
     bootstrapNodes: [
       // Nodi bootstrap predefiniti (nodi reali attivi)
       {
-        host: '51.89.148.92',
+        host: '34.70.102.121',
         port: 6001,
-        id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
+        id: '12D3KooWGtVzgj1XiyG3GoRjEbokUYRxUsXJ225gksLWErNkvcwy'
       },
-      {
-        host: '135.125.232.233',
-        port: 6001,
-        id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
-      }
     ],
     discovery: {
       // Abilita discovery globale attraverso DHT

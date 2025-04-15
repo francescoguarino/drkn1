@@ -10,23 +10,14 @@
 // Lista dei nodi bootstrap ufficiali
 const OFFICIAL_BOOTSTRAP_NODES = [
   {
-    id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F',
-    host: '51.89.148.92',
+    id: '12D3KooWGtVzgj1XiyG3GoRjEbokUYRxUsXJ225gksLWErNkvcwy',
+    host: '34.70.102.121',
     port: 6001,
     isOfficial: true,
-    location: 'EU-West',
-    name: 'drakon-bootstrap-1',
-    status: 'active'
+    name: 'gc1-drkn1-bootstrap',
+    status: 'active',
+    location: 'US-Central'
   },
-  {
-    id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK',
-    host: '135.125.232.233',
-    port: 6001,
-    isOfficial: true,
-    location: 'EU-Central',
-    name: 'drakon-bootstrap-2',
-    status: 'active'
-  }
 ];
 
 // Lista di nodi bootstrap comunità
@@ -37,15 +28,16 @@ const COMMUNITY_BOOTSTRAP_NODES = [
 // Lista di nodi bootstrap personali
 // Qui puoi aggiungere i tuoi nodi bootstrap locali o quelli che conosci
 const PERSONAL_BOOTSTRAP_NODES = [
-  // Esempio:
-  // {
-  //   id: 'identifcativo-peer',
-  //   host: '192.168.1.100',
-  //   port: 6001,
-  //   isOfficial: false,
-  //   name: 'mio-nodo-locale',
-  //   status: 'active'
-  // }
+  {
+    id: '12D3KooWGtVzgj1XiyG3GoRjEbokUYRxUsXJ225gksLWErNkvcwy',
+    host: '34.70.102.121',
+    port: 6001,
+    isOfficial: true,
+    name: 'gc1-drkn1-bootstrap',
+    status: 'active',
+    location: 'US-Central'
+  },
+
 ];
 
 // Unisci tutte le liste
