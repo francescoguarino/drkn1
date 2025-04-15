@@ -13,7 +13,13 @@ export class NodeStorage {
     // Crea la directory se non esiste
     if (!existsSync(this.storageDir)) {
       mkdirSync(this.storageDir, { recursive: true });
+      this.logger.info(`Directory di storage creata: ${this.storageDir}`);
+    } else {
+      this.logger.info(`Directory di storage esistente: ${this.storageDir}`);
     }
+    
+    // Verifica percorsi assoluti
+    this.logger.info(`Percorso info nodo (assoluto): ${path.resolve(this.nodeInfoPath)}`);
   }
 
   /**
@@ -112,6 +118,7 @@ export class NodeStorage {
 
       // Leggi il file
       const data = await fs.readFile(this.nodeInfoPath, 'utf8');
+      this.logger.debug(`File letto (${data.length} bytes)`);
 
       // Parsa i dati JSON
       const nodeInfo = JSON.parse(data);
@@ -132,15 +139,21 @@ export class NodeStorage {
         if (typeof nodeInfo.peerId === 'string') {
           this.logger.debug(`PeerId caricato (stringa): ${nodeInfo.peerId}`);
         } else if (typeof nodeInfo.peerId === 'object') {
-          this.logger.debug(
-            `PeerId caricato (oggetto): ${nodeInfo.peerId.id || JSON.stringify(nodeInfo.peerId)}`
-          );
+          this.logger.info(`PeerId caricato (oggetto con id): ${nodeInfo.peerId.id || 'id mancante'}`);
+          this.logger.info(`PeerId ha chiave privata: ${!!nodeInfo.peerId.privKey}`);
+          this.logger.info(`PeerId ha chiave pubblica: ${!!nodeInfo.peerId.pubKey}`);
+          
+          if (nodeInfo.peerId.privKey) {
+            const keyLength = nodeInfo.peerId.privKey.length;
+            this.logger.debug(`Lunghezza chiave privata: ${keyLength} caratteri`);
+          }
         }
       }
 
       return nodeInfo;
     } catch (error) {
       this.logger.error(`Errore nel caricamento delle informazioni del nodo: ${error.message}`);
+      this.logger.error(error.stack);
       return null;
     }
   }

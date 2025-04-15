@@ -65,7 +65,8 @@ export class BootstrapNode extends EventEmitter {
           nodeId: loadedInfo.nodeId,
           peerId: loadedInfo.peerId ? (typeof loadedInfo.peerId === 'string' ? loadedInfo.peerId : loadedInfo.peerId.id) : null,
           p2pPort: loadedInfo.p2pPort,
-          apiPort: loadedInfo.apiPort
+          apiPort: loadedInfo.apiPort,
+          hasPeerIdKeys: !!(loadedInfo.peerId && loadedInfo.peerId.privKey && loadedInfo.peerId.pubKey)
         })}`);
       } else {
         this.logger.info('Nessuna informazione di storage trovata');
@@ -79,6 +80,21 @@ export class BootstrapNode extends EventEmitter {
         this.logger.info(`Caricate informazioni del nodo esistenti con ID: ${savedInfo.nodeId}`);
         // Usa le informazioni salvate
         this.nodeId = savedInfo.nodeId;
+        
+        // IMPORTANTE: Imposta il flag persistentPeerId nella configurazione
+        if (savedInfo.peerId) {
+          this.logger.info('PeerId trovato nelle informazioni salvate, configurazione per riutilizzo');
+          this.config.p2p = this.config.p2p || {};
+          this.config.p2p.persistentPeerId = true;
+          
+          // Se abbiamo l'oggetto PeerId completo con chiavi, usa anche quelle
+          if (typeof savedInfo.peerId === 'object' && savedInfo.peerId.privKey && savedInfo.peerId.pubKey) {
+            this.logger.info('Impostazione chiavi PeerId salvate per il riutilizzo');
+            this.config.p2p.savedPeerId = savedInfo.peerId;
+          } else {
+            this.logger.warn('PeerId trovato ma senza chiavi complete');
+          }
+        }
         
         if (savedInfo.p2pPort) {
           this.logger.info(`Usando porta P2P salvata: ${savedInfo.p2pPort}`);
@@ -123,7 +139,10 @@ export class BootstrapNode extends EventEmitter {
         }
       });
       
-      this.logger.info(`PeerId salvato per futuri riavvii: ${currentPeerId.toString()}`);
+      // Verifica il percorso di salvataggio effettivo
+      const storagePath = path.resolve(this.storage.storageDir);
+      this.logger.info(`PeerId salvato per futuri riavvii in: ${storagePath}`);
+      this.logger.info(`PeerId: ${currentPeerId.toString()}`);
 
       this.isRunning = true;
       this.logger.info('Nodo bootstrap avviato con successo');
@@ -132,7 +151,8 @@ export class BootstrapNode extends EventEmitter {
       this.emit('started', {
         nodeId: this.nodeId,
         p2pPort: this.config.p2p.port,
-        apiPort: this.config.api.port
+        apiPort: this.config.api.port,
+        peerId: currentPeerId.toString()
       });
 
       return true;

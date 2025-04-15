@@ -27,13 +27,18 @@ async function runBootstrapNode(options = {}) {
     // Imposta il percorso dati specifico per il bootstrap
     const bootstrapDataDir = options.dataDir || path.join(process.cwd(), 'bootstrap-db');
     
+    // Assicurati che il percorso sia assoluto (importante per la persistenza)
+    const absoluteDataDir = path.resolve(bootstrapDataDir);
+    logger.info(`Percorso dati bootstrap (assoluto): ${absoluteDataDir}`);
+    
     // Aggiorna config con il percorso dati bootstrap
     if (!config.config.storage) config.config.storage = {};
-    config.config.storage.path = bootstrapDataDir;
+    config.config.storage.path = absoluteDataDir;
     
     // Assicurati che il nodo sia configurato come bootstrap
     if (!config.config.node) config.config.node = {};
     config.config.node.isBootstrap = true;
+    config.config.node.dataDir = absoluteDataDir; // Importante: imposta anche dataDir
     
     // Configura il nome del nodo con prefisso bootstrap
     if (!config.config.node.name || !config.config.node.name.startsWith('bootstrap-')) {
@@ -43,6 +48,20 @@ async function runBootstrapNode(options = {}) {
     // IMPORTANTE: Verifica se esistono informazioni salvate prima di generare un nuovo ID
     const nodeStorage = new NodeStorage(config.config);
     const savedInfo = await nodeStorage.loadNodeInfo();
+
+    // Stampa informazioni dettagliate su cosa è stato trovato
+    logger.info(`Percorso storage: ${path.join(absoluteDataDir, 'storage')}`);
+    logger.info(`File info nodo: ${path.join(absoluteDataDir, 'storage', 'node-info.json')}`);
+    logger.info(`Informazioni salvate trovate: ${!!savedInfo}`);
+    if (savedInfo) {
+      logger.info(`Contenuto informazioni: ${JSON.stringify({
+        nodeId: savedInfo.nodeId || 'non trovato',
+        hasPeerId: !!savedInfo.peerId,
+        peerIdType: savedInfo.peerId ? typeof savedInfo.peerId : 'non trovato',
+        peerIdComplete: savedInfo.peerId && typeof savedInfo.peerId === 'object' && 
+                     savedInfo.peerId.privKey && savedInfo.peerId.pubKey
+      })}`);
+    }
 
     if (savedInfo && savedInfo.nodeId) {
       logger.info(`Trovate informazioni salvate con ID: ${savedInfo.nodeId}`);

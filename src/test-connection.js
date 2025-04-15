@@ -37,24 +37,9 @@ async function testConnection() {
       {
         host: '34.70.102.121',
         port: 6001,
-        id: '12D3KooWQuicbb9dYFGQQsnJ5HPxvfVoszeBUQkSdrBFo8QHU6PB'
+        id: '12D3KooWCnKoG36Knx7se5znSmgmJQtfB4rqLNcCjtTs4XJPPc4m'
       },
-      // Backup bootstrap nodes
-      {
-        host: '34.72.27.228',
-        port: 6001,
-        id: '12D3KooWPLXPZSELZqpj5ACYjtaXjR5PvcGDb3FA4EPNrnQwx4N6'
-      },
-      {
-        host: '51.89.148.92',
-        port: 6001,
-        id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
-      },
-      {
-        host: '135.125.232.233',
-        port: 6001,
-        id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
-      },
+      
       // Aggiungi i nodi bootstrap configurati localmente
       ...configNodes
     ];
@@ -77,13 +62,38 @@ async function testConnection() {
         logger.info('✅ Connessione diretta con PeerId noto riuscita!');
         logger.info(`Connesso al peer con ID: ${connection.remotePeer.toString()}`);
         
-        // Attendi 5 secondi per verificare che la connessione sia stabile
+        // Attendi alcuni secondi per verificare che la connessione sia stabile
         logger.info('Verifica stabilità connessione (5 secondi)...');
         await new Promise(resolve => setTimeout(resolve, 5000));
         
         if (node.getPeers().includes(connection.remotePeer.toString())) {
           logger.info('✅ Connessione stabile!');
           successfulConnections++;
+          
+          // NUOVO: Salva il PeerId effettivo in un file locale per il test di persistenza
+          try {
+            const persistenceTestDir = path.join(process.cwd(), 'persistence-test');
+            
+            // Crea la directory se non esiste
+            if (!fs.existsSync(persistenceTestDir)) {
+              fs.mkdirSync(persistenceTestDir, { recursive: true });
+            }
+            
+            // Salva le informazioni del bootstrap node in un file
+            const bootstrapNodeInfo = {
+              host: bootstrap.host,
+              port: bootstrap.port,
+              id: connection.remotePeer.toString(),
+              timestamp: new Date().toISOString()
+            };
+            
+            const filePath = path.join(persistenceTestDir, `bootstrap-${bootstrap.host}-${bootstrap.port}.json`);
+            fs.writeFileSync(filePath, JSON.stringify(bootstrapNodeInfo, null, 2));
+            
+            logger.info(`Informazioni bootstrap salvate in: ${filePath}`);
+          } catch (saveError) {
+            logger.warn(`Errore nel salvataggio informazioni bootstrap: ${saveError.message}`);
+          }
         } else {
           logger.warn('⚠️ Connessione instabile o persa');
         }
