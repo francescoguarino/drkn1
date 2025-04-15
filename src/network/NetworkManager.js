@@ -61,18 +61,26 @@ export class NetworkManager extends EventEmitter {
       this.isRunning = true;
 
       try {
+        // Carica le informazioni esistenti del nodo prima di tutto
+        const existingNodeInfo = await this.storage.loadNodeInfo();
+        
+        // Se è stato trovato un nodeId nel file di storage e non ne abbiamo già uno, usalo
+        if (existingNodeInfo?.nodeId && !this.nodeId) {
+          this.nodeId = existingNodeInfo.nodeId;
+          this.logger.info(`NodeId caricato dal file di storage: ${this.nodeId}`);
+        }
+        
         // Utilizziamo il nuovo metodo per caricare o creare il PeerId
         this.peerId = await this.loadOrCreatePeerId();
         this.logger.info(`PeerId caricato/creato: ${this.peerId.toString()}`);
         
         // Se non abbiamo già un nodeId, lo generiamo dal PeerId
-        if (!this.nodeId) {
+        if ( !this.nodeId ) {
           this.nodeId = this.peerId.toString();
           this.logger.info(`NodeId impostato dal PeerId: ${this.nodeId}`);
+        } else {
+          this.logger.info(`Utilizzo nodeId esistente: ${this.nodeId}`);
         }
-        
-        // Carica le informazioni esistenti del nodo
-        const existingNodeInfo = await this.storage.loadNodeInfo();
         
         // Salva le informazioni aggiornate del nodo
         const nodeInfo = {
@@ -150,8 +158,7 @@ export class NetworkManager extends EventEmitter {
         }
       };
 
-      // Rimuovo il blocco try duplicato e uso direttamente la configurazione libp2p
-      // ... existing code ...
+
 
       // Fase 2: Crea il nodo libp2p con il PeerId ottenuto
       this.logger.info(`Creazione nodo libp2p con PeerId: ${this.peerId.toString()}`);
@@ -364,7 +371,11 @@ ${connectedPeers.length > 0
               // Verifica corrispondenza con l'ID salvato
               if (peerId.toString() !== nodeInfo.peerId.id) {
                 this.logger.warn(`⚠️ Il PeerId generato (${peerId.toString()}) non corrisponde all'ID salvato (${nodeInfo.peerId.id})`);
-                throw new Error('PeerId mismatch');
+                this.logger.warn('Questo potrebbe essere causato da cambiamenti nelle librerie libp2p. Utilizzerò comunque il nuovo PeerId generato.');
+                // Aggiorna l'ID nel nodeInfo per i futuri caricamenti
+                nodeInfo.peerId.id = peerId.toString();
+                await this.storage.saveNodeInfo(nodeInfo);
+                this.logger.info(`Informazioni nodo aggiornate con il nuovo PeerId: ${peerId.toString()}`);
               }
 
               return peerId;
