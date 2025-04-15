@@ -26,7 +26,6 @@ import { autoNAT } from '@libp2p/autonat';
 import { unmarshalPrivateKey } from '@libp2p/crypto/keys';
 import { createEd25519PeerId as createNewPeerId } from '@libp2p/peer-id-factory';
 import { createFromPrivKey as createPeerIdFromPrivateKey } from '@libp2p/peer-id';
-import { ip } from '@libp2p/ip';
 import { yamux } from '@libp2p/yamux';
 import { identify } from '@libp2p/identify';
 import { gossipsub } from '@libp2p/gossipsub';
@@ -112,7 +111,7 @@ export class NetworkManager extends EventEmitter {
       
       // Aggiungi indirizzo di rete locale se non siamo in modalità lokalhost-only
       if (this.config.mode !== 'localhost-only') {
-        const localIp = ip.address();
+        const localIp = this.getLocalIpAddress();
         if (localIp) {
           listenAddresses.push(`/ip4/${localIp}/tcp/${this.port}`);
         }
