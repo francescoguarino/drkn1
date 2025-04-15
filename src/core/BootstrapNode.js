@@ -57,6 +57,21 @@ export class BootstrapNode extends EventEmitter {
     try {
       this.logger.info('Avvio del nodo bootstrap Drakon...');
 
+      // Informazioni di debug su storage e PeerId
+      this.logger.info('---- DEBUG INFO BOOTSTRAP NODE START ----');
+      const loadedInfo = await this.storage.loadNodeInfo();
+      if (loadedInfo) {
+        this.logger.info(`Informazioni di storage caricate: ${JSON.stringify({
+          nodeId: loadedInfo.nodeId,
+          peerId: loadedInfo.peerId ? (typeof loadedInfo.peerId === 'string' ? loadedInfo.peerId : loadedInfo.peerId.id) : null,
+          p2pPort: loadedInfo.p2pPort,
+          apiPort: loadedInfo.apiPort
+        })}`);
+      } else {
+        this.logger.info('Nessuna informazione di storage trovata');
+      }
+      this.logger.info('---------------------------------------');
+
       // Carica le informazioni esistenti
       const savedInfo = await this.storage.loadNodeInfo();
 
