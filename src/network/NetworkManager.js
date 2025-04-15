@@ -219,7 +219,7 @@ export class NetworkManager extends EventEmitter {
           this.logger.info(`Tentativo ${attemptCount}/${maxAttempts} di avvio sulla porta ${port}`);
 
           // Crea il nodo libp2p
-          this.node = await this._createLibp2pNode(port);
+          this.node = await this._createLibp2pNode(port, peerId);
 
           // Verifica che il nodo sia stato creato correttamente
           if (!this.node) {
@@ -348,17 +348,21 @@ export class NetworkManager extends EventEmitter {
   }
 
   _printSummaryTable() {
-    const connectedPeers = Array.from(this.peers).map(peer => ({
-      id: peer.id,
+    // Ottieni la lista dei peer connessi
+    const connectedPeers = Array.from(this.peers.keys()).map(peerId => ({
+      id: peerId,
       status: 'Connected'
     }));
+
+    // Usa il PeerId effettivamente utilizzato, non quello che tentiamo di riutilizzare
+    const actualPeerId = this.node ? this.node.peerId.toString() : (this.peerId?.toString() || 'Non disponibile');
 
     const table = `
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║ Riepilogo Nodo                                                           ║
 ╠════════════════════════════════════════════════════════════════════════════╣
 ║ ID Nodo: ${this.nodeId}                                                    ║
-║ Peer ID: ${this.peerId?.toString() || 'Non disponibile'}                   ║
+║ Peer ID: ${actualPeerId}                   ║
 ║ Porta P2P: ${this.p2pPort}                                                 ║
 ║ Porta API: ${this.config.api?.port || 'Non configurata'}                   ║
 ║ Network Type: ${this.networkType}                                          ║
@@ -366,7 +370,9 @@ export class NetworkManager extends EventEmitter {
 ║ Peer Connessi: ${connectedPeers.length}                                     ║
 ╠════════════════════════════════════════════════════════════════════════════╣
 ║ Lista Peer Connessi:                                                      ║
-${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
+${connectedPeers.length > 0 
+  ? connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n') 
+  : '║ Nessun peer connesso'}
 ╚════════════════════════════════════════════════════════════════════════════╝
 `;
 
@@ -1062,7 +1068,7 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
   async _handlePeerConnect(event) {
     try {
       const { id, connection } = event.detail;
-      this.logger.info(`Peer connesso: ${id}`);
+      this.logger.info(`Connesso al peer: ${id}`);
 
       // Verifica che this.peers esista prima di usare .set()
       if (!this.peers) {
@@ -1113,7 +1119,7 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
         // Scambia informazioni sulla DHT
         await this._exchangeDHTInfo(id, connection);
 
-        // Invia evento
+        // Emetti evento di connessione
         this.emit('peer:connect', { id, connection, peerInfo });
       } else {
         this.logger.warn(
@@ -1206,9 +1212,15 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
 
   async _handlePeerDisconnect(event) {
     const { id } = event.detail;
-    this.logger.info(`Peer disconnesso: ${id}`);
+    this.logger.info(`Disconnesso dal peer: ${id}`);
 
-    await this._disconnectPeer(id);
+    if (this.peers.has(id)) {
+      this.peers.delete(id);
+      this.stats.activeConnections--;
+      
+      // Emetti evento di disconnessione
+      this.emit('peer:disconnect', { id });
+    }
   }
 
   async _handlePeerError(event) {
@@ -1577,11 +1589,19 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
    * Crea e configura un nodo libp2p
    * @private
    * @param {number} port - porta P2P
+   * @param {PeerId} [explicitPeerId] - PeerId da utilizzare (opzionale, se non fornito usa this.peerId)
    * @returns {Promise<libp2p>} Istanza del nodo libp2p
    */
-  async _createLibp2pNode(port) {
+  async _createLibp2pNode(port, explicitPeerId) {
     const localIp = this.getLocalIpAddress();
     this.logger.debug(`Indirizzo IP locale trovato: ${localIp}`);
+    
+    // Se è disponibile un IP pubblico da variabile d'ambiente, usalo
+    let ipToUse = localIp;
+    if (process.env.PUBLIC_IP) {
+      ipToUse = process.env.PUBLIC_IP;
+      this.logger.info(`Usando indirizzo IP pubblico da variabile d'ambiente: ${ipToUse}`);
+    }
     
     // Verifica che le porte siano numeri validi
     if (isNaN(port)) {
@@ -1589,11 +1609,21 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
       throw new Error(`Porta P2P non valida: ${port}`);
     }
     
+    // Determina quale PeerId usare (quello esplicito passato come parametro o this.peerId)
+    const peerIdToUse = explicitPeerId || this.peerId;
+    
+    // Stampa informazioni sul PeerId che verrà utilizzato
+    if (peerIdToUse) {
+      this.logger.info(`Creazione nodo libp2p con PeerId: ${peerIdToUse.toString()}`);
+    } else {
+      this.logger.warn('Nessun PeerId fornito, libp2p ne genererà uno automaticamente');
+    }
+    
     try {
       // Configura libp2p con impostazioni ottimizzate per la connettività pubblica
-      const node = await createLibp2p({
-        // Usa il PeerId già creato e salvato in this.peerId
-        peerId: this.peerId,
+      const nodeConfig = {
+        // Usa il PeerId se disponibile
+        ...(peerIdToUse ? { peerId: peerIdToUse } : {}),
         
         // Configura gli indirizzi da ascoltare e annunciare
         addresses: {
@@ -1601,9 +1631,9 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
           listen: [
             `/ip4/0.0.0.0/tcp/${port}`
           ],
-          // Annuncia solo l'IP pubblico
+          // Annuncia solo l'IP pubblico/specificato
           announce: [
-            `/ip4/${localIp}/tcp/${port}`
+            `/ip4/${ipToUse}/tcp/${port}`
           ]
         },
         
@@ -1637,10 +1667,27 @@ ${connectedPeers.map(peer => `║ - ${peer.id} (${peer.status})`).join('\n')}
           maxDialsPerPeer: 5, // Più tentativi per peer
           dialTimeout: 10000, // 10 secondi timeout per dial
         }
-      });
+      };
       
-      this.logger.info(`Nodo libp2p configurato sulla porta ${port}`);
-      this.logger.debug(`PeerId utilizzato: ${node.peerId.toString()}`);
+      const node = await createLibp2p(nodeConfig);
+      
+      // Verifica se il PeerId del nodo creato è quello che ci aspettavamo
+      if (peerIdToUse) {
+        const expectedPeerId = peerIdToUse.toString();
+        const actualPeerId = node.peerId.toString();
+        
+        this.logger.info(`Nodo avviato con successo sulla porta ${port}`);
+        this.logger.info(`PeerId atteso: ${expectedPeerId}`);
+        this.logger.info(`PeerId effettivo: ${actualPeerId}`);
+        
+        if (expectedPeerId !== actualPeerId) {
+          this.logger.warn(`⚠️ ATTENZIONE: Il PeerId del nodo (${actualPeerId}) non corrisponde a quello che volevamo usare (${expectedPeerId})`);
+        } else {
+          this.logger.info(`✅ PeerId correttamente applicato al nodo`);
+        }
+      } else {
+        this.logger.info(`Nodo avviato con PeerId generato automaticamente: ${node.peerId.toString()}`);
+      }
       
       return node;
     } catch (error) {
