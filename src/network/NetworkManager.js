@@ -6,7 +6,6 @@ import { bootstrap } from '@libp2p/bootstrap';
 import { Logger } from '../utils/logger.js';
 import { EventEmitter } from 'events';
 import { DHTManager } from './DHT.js';
-import { createFromJSON, createEd25519PeerId } from '@libp2p/peer-id-factory';
 import { NodeStorage } from '../utils/NodeStorage.js';
 import fs from 'fs';
 import path from 'path';
@@ -24,13 +23,11 @@ import os from 'os';
 import * as peerIdModule from '@libp2p/peer-id';
 import { autoNAT } from '@libp2p/autonat';
 import { unmarshalPrivateKey } from '@libp2p/crypto/keys';
-import { createEd25519PeerId as createNewPeerId } from '@libp2p/peer-id-factory';
-import { createFromPrivKey as createPeerIdFromPrivateKey } from '@libp2p/peer-id';
-import { yamux } from '@libp2p/yamux';
+import { createEd25519PeerId as createNewPeerId, createFromPrivKey } from '@libp2p/peer-id-factory';
 import { identify } from '@libp2p/identify';
-import { gossipsub } from '@libp2p/gossipsub';
-import { KadDHT } from '@libp2p/kad-dht';
-import { pingService } from '@libp2p/ping';
+import { gossipsub } from '@chainsafe/libp2p-gossipsub';
+import { kadDHT } from '@libp2p/kad-dht';
+import { ping } from '@libp2p/ping';
 
 export class NetworkManager extends EventEmitter {
   constructor(config, storage) {
@@ -126,10 +123,9 @@ export class NetworkManager extends EventEmitter {
           listen: listenAddresses
         },
         transports: [
-          new TCP()
+          tcp()
         ],
         streamMuxers: [
-          yamux(),
           mplex()
         ],
         connectionEncryption: [
@@ -137,12 +133,12 @@ export class NetworkManager extends EventEmitter {
         ],
         services: {
           identify: identify(),
-          ping: pingService(),
+          ping: ping(),
           pubsub: gossipsub({
             emitSelf: false,
             allowPublishToZeroPeers: true
           }),
-          dht: new KadDHT({
+          dht: kadDHT({
             clientMode: false,
             validators: {
               ipns: this.dhtManager ? this.dhtManager.getIPNSValidator() : null
@@ -361,7 +357,7 @@ ${connectedPeers.length > 0
               
               // Decodifica la chiave privata e crea il PeerId
               const privKey = await unmarshalPrivateKey(privKeyBuffer);
-              const peerId = await createPeerIdFromPrivateKey(privKey);
+              const peerId = await createFromPrivKey(privKey);
               
               this.logger.info(`PeerId creato con successo: ${peerId.toString()}`);
               
@@ -370,7 +366,7 @@ ${connectedPeers.length > 0
                 this.logger.warn(`⚠️ Il PeerId generato (${peerId.toString()}) non corrisponde all'ID salvato (${nodeInfo.peerId.id})`);
                 throw new Error('PeerId mismatch');
               }
-              
+
               return peerId;
             } catch (importError) {
               this.logger.error(`Errore importazione chiave: ${importError.message}`);
