@@ -49,6 +49,22 @@ async function runBootstrapNode(options = {}) {
       // Usa l'ID salvato
       config.config.node.id = savedInfo.nodeId;
       logger.info(`Utilizzando ID nodo bootstrap salvato: ${savedInfo.nodeId}`);
+      
+      // Verifica se abbiamo un PeerId salvato
+      if (savedInfo.peerId) {
+        logger.info(`Trovato anche PeerId salvato: ${typeof savedInfo.peerId === 'string' ? savedInfo.peerId : savedInfo.peerId.id}`);
+        // Imposta esplicitamente nella configurazione che questo PeerId deve essere riutilizzato
+        config.config.p2p = config.config.p2p || {};
+        config.config.p2p.persistentPeerId = true;
+        
+        // Se abbiamo l'oggetto PeerId completo con chiavi, impostiamo anche quelle
+        if (typeof savedInfo.peerId === 'object' && savedInfo.peerId.privKey && savedInfo.peerId.pubKey) {
+          logger.info('Impostazione chiavi PeerId salvate per il riutilizzo');
+          config.config.p2p.savedPeerId = savedInfo.peerId;
+        }
+      } else {
+        logger.warn('ID nodo trovato ma PeerId mancante. Verrà generato un nuovo PeerId.');
+      }
     } else {
       // Genera un ID univoco e stabile per questo nodo bootstrap
       logger.info('Nessuna informazione del nodo bootstrap trovata, verrà generato un nuovo ID');
@@ -140,6 +156,22 @@ async function runBootstrapNode(options = {}) {
     const publicIp = process.env.PUBLIC_IP || '127.0.0.1';
     const peerId = node.networkManager.node.peerId.toString();
     const port = config.config.p2p.port;
+    
+    // IMPORTANTE: Salva il PeerId per usi futuri, anche se è lo stesso di prima
+    // Questo assicura che tutte le informazioni del PeerId vengano salvate correttamente
+    await nodeStorage.saveNodeInfo({
+      nodeId: node.nodeId,
+      peerId: {
+        id: peerId,
+        privKey: node.networkManager.node.peerId.privateKey 
+          ? Buffer.from(node.networkManager.node.peerId.privateKey).toString('base64')
+          : null,
+        pubKey: node.networkManager.node.peerId.publicKey 
+          ? Buffer.from(node.networkManager.node.peerId.publicKey).toString('base64')
+          : null
+      }
+    });
+    logger.info(`PeerId salvato per future esecuzioni: ${peerId}`);
     
     // Mostra l'indirizzo completo per la connessione
     logger.info('');
