@@ -2,12 +2,15 @@ import { createLibp2p } from 'libp2p';
 import { tcp } from '@libp2p/tcp';
 import { noise } from '@chainsafe/libp2p-noise';
 import { mplex } from '@libp2p/mplex';
+import { multiaddr } from '@multiformats/multiaddr';
 import { Logger } from './utils/logger.js';
+import fs from 'fs';
+import path from 'path';
 
 const logger = new Logger('TestConnection');
 
 async function testConnection() {
-  logger.info('Avvio test di connessione al bootstrap node...');
+  logger.info('Avvio test di connessione ai bootstrap node...');
   
   try {
     // Crea un nodo libp2p di base
@@ -17,49 +20,167 @@ async function testConnection() {
       },
       transports: [tcp()],
       connectionEncryption: [noise()],
-      streamMuxers: [mplex()],
+      streamMuxers: [mplex()]
     });
     
+    // Avvia il nodo
     await node.start();
-    logger.info(`Nodo di test avviato con PeerId: ${node.peerId.toString()}`);
+    logger.info(`Nodo avviato con PeerId: ${node.peerId.toString()}`);
+    logger.info(`Indirizzi di ascolto: ${node.getMultiaddrs().map(ma => ma.toString()).join(', ')}`);
     
-    // Indirizzo del bootstrap node - aggiornato con i dati corretti dal log
-    const bootstrapNodeAddr = '/ip4/34.70.102.121/tcp/6001/p2p/12D3KooWRAECGcdaVotQChTug18kGW9GZiTYrDiu4bLfqSzYTZoH';
-    logger.info(`Tentativo di connessione a: ${bootstrapNodeAddr}`);
+    // Verifica se esiste un file di configurazione locale per i nodi bootstrap
+    const configNodes = await getConfiguredBootstrapNodes();
     
-    // Tenta la connessione con un timeout
-    const connectPromise = new Promise(async (resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Connessione scaduta dopo 10 secondi'));
-      }, 10000);
+    // Lista bootstrap nodes da testare
+    const bootstrapNodes = [
+      // Nodo bootstrap principale
+      {
+        host: '34.70.102.121',
+        port: 6001,
+        id: '12D3KooWQuicbb9dYFGQQsnJ5HPxvfVoszeBUQkSdrBFo8QHU6PB'
+      },
+      // Backup bootstrap nodes
+      {
+        host: '34.72.27.228',
+        port: 6001,
+        id: '12D3KooWPLXPZSELZqpj5ACYjtaXjR5PvcGDb3FA4EPNrnQwx4N6'
+      },
+      {
+        host: '51.89.148.92',
+        port: 6001,
+        id: '12D3KooWMrCy57meFXrLRjJQgNT1civBXRASsRBLnMDP5aGdQW3F'
+      },
+      {
+        host: '135.125.232.233',
+        port: 6001,
+        id: '12D3KooWGa15XBTP5i1JWMBo4N6sG9Wd3XfY76KYBE9KAiSS1sdK'
+      },
+      // Aggiungi i nodi bootstrap configurati localmente
+      ...configNodes
+    ];
+    
+    let successfulConnections = 0;
+    
+    // Testa prima la connessione con PeerId noto
+    for (const bootstrap of bootstrapNodes) {
+      logger.info('-------------------------------------------');
+      logger.info(`Test bootstrap node: ${bootstrap.host}:${bootstrap.port}/p2p/${bootstrap.id}`);
       
+      // Tenta la connessione con PeerId noto
       try {
-        await node.dial(bootstrapNodeAddr);
-        clearTimeout(timeout);
-        resolve(true);
-      } catch (err) {
-        clearTimeout(timeout);
-        reject(err);
+        // Crea l'indirizzo multiaddr con il PeerId noto
+        const maWithPeerId = multiaddr(`/ip4/${bootstrap.host}/tcp/${bootstrap.port}/p2p/${bootstrap.id}`);
+        
+        // Tenta la connessione
+        const connection = await node.dial(maWithPeerId);
+        
+        logger.info('✅ Connessione diretta con PeerId noto riuscita!');
+        logger.info(`Connesso al peer con ID: ${connection.remotePeer.toString()}`);
+        
+        // Attendi 5 secondi per verificare che la connessione sia stabile
+        logger.info('Verifica stabilità connessione (5 secondi)...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        if (node.getPeers().includes(connection.remotePeer.toString())) {
+          logger.info('✅ Connessione stabile!');
+          successfulConnections++;
+        } else {
+          logger.warn('⚠️ Connessione instabile o persa');
+        }
+      } catch (error) {
+        logger.error(`❌ Errore nella connessione diretta con PeerId noto: ${error.message}`);
+        
+        // Prova la connessione senza PeerId
+        logger.info('Tentativo di connessione senza PeerId...');
+        
+        try {
+          // Crea l'indirizzo multiaddr senza specificare un PeerId
+          const ma = multiaddr(`/ip4/${bootstrap.host}/tcp/${bootstrap.port}`);
+          
+          // Tenta la connessione
+          const connection = await node.dial(ma);
+          logger.info('✅ Connessione diretta senza PeerId riuscita!');
+          logger.info(`Connesso al peer con ID: ${connection.remotePeer.toString()}`);
+          
+          // Salva il PeerId effettivo per uso futuro
+          logger.info(`PeerId effettivo del bootstrap node: ${connection.remotePeer.toString()}`);
+          logger.info(`Indirizzo completo per connessioni future: /ip4/${bootstrap.host}/tcp/${bootstrap.port}/p2p/${connection.remotePeer.toString()}`);
+          
+          // Attendi 5 secondi per verificare che la connessione sia stabile
+          logger.info('Verifica stabilità connessione (5 secondi)...');
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
+          if (node.getPeers().includes(connection.remotePeer.toString())) {
+            logger.info('✅ Connessione stabile!');
+            successfulConnections++;
+          } else {
+            logger.warn('⚠️ Connessione instabile o persa');
+          }
+        } catch (error) {
+          logger.error(`❌ Errore nella connessione diretta senza PeerId: ${error.message}`);
+        }
       }
-    });
+    }
     
-    await connectPromise;
-    logger.info('✅ Connesso con successo al bootstrap node!');
-    
-    // Stampa le informazioni sulla connessione
+    // Verifica connessioni
     const peers = node.getPeers();
+    logger.info('-------------------------------------------');
     logger.info(`Numero di peer connessi: ${peers.length}`);
+    logger.info(`Test completati: ${bootstrapNodes.length}, Connessioni riuscite: ${successfulConnections}`);
     
-    // Attendi un po' e poi arresta il nodo
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    if (peers.length > 0) {
+      logger.info('✅ Connessione alla rete stabilita!');
+      
+      // Elenca i peer
+      for (let i = 0; i < peers.length; i++) {
+        logger.info(`Peer #${i+1}: ${peers[i]}`);
+      }
+    } else {
+      logger.warn('⚠️ Nessun peer connesso.');
+    }
+    
+    // Arresta il nodo
     await node.stop();
     logger.info('Test completato.');
     
-    return true;
+    return peers.length > 0;
   } catch (error) {
     logger.error(`❌ Test fallito: ${error.message}`);
     logger.error(error.stack);
+    
+    // Tentativo di arresto nodo in caso di errore
+    try {
+      if (node) await node.stop();
+    } catch (stopError) {
+      logger.error(`Errore nell'arresto del nodo: ${stopError.message}`);
+    }
+    
     return false;
+  }
+}
+
+/**
+ * Cerca di caricare i nodi bootstrap dalla configurazione locale
+ */
+async function getConfiguredBootstrapNodes() {
+  try {
+    // Controlla se esiste un file di configurazione bootstrap-nodes.json
+    const configPath = path.join(process.cwd(), 'config', 'bootstrap-nodes.json');
+    
+    if (fs.existsSync(configPath)) {
+      const configData = fs.readFileSync(configPath, 'utf8');
+      const config = JSON.parse(configData);
+      
+      if (Array.isArray(config.nodes)) {
+        return config.nodes;
+      }
+    }
+    
+    // Se il file non esiste o non contiene un array 'nodes', restituisci array vuoto
+    return [];
+  } catch (error) {
+    logger.warn(`Errore nel caricamento della configurazione bootstrap: ${error.message}`);
+    return [];
   }
 }
 
@@ -68,10 +189,11 @@ testConnection()
   .then(success => {
     if (success) {
       console.log('Test di connessione completato con successo!');
+      process.exit(0);
     } else {
       console.log('Test di connessione fallito!');
+      process.exit(1);
     }
-    process.exit(success ? 0 : 1);
   })
   .catch(err => {
     console.error('Errore durante il test:', err);
