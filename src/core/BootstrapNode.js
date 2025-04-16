@@ -198,6 +198,11 @@ export class BootstrapNode extends EventEmitter {
   _setupEventHandlers() {
     // Gestione eventi di rete
     this.networkManager.on('peer:connect', (peer) => {
+      if (!peer || !peer.id) {
+        this.logger.warn('⚠️ Evento peer:connect ricevuto senza peer.id definito');
+        return;
+      }
+      
       this.logger.info(`Nuovo peer connesso: ${peer.id}`);
        
       // Invia messaggio di benvenuto al peer
@@ -208,12 +213,22 @@ export class BootstrapNode extends EventEmitter {
     });
 
     this.networkManager.on('peer:disconnect', (peer) => {
+      if (!peer || !peer.id) {
+        this.logger.warn('⚠️ Evento peer:disconnect ricevuto senza peer.id definito');
+        return;
+      }
+      
       this.logger.info(`Peer disconnesso: ${peer.id}`);
       this.emit('peer:disconnect', peer);
     });
 
     this.networkManager.on('message', (message, peer) => {
-      this.logger.debug(`Messaggio ricevuto da ${peer.id}: ${message.type}`);
+      if (!peer || !peer.id) {
+        this.logger.warn('⚠️ Evento message ricevuto senza peer.id definito');
+        return;
+      }
+      
+      this.logger.debug(`Messaggio ricevuto da ${peer.id}: ${message ? message.type : 'undefined'}`);
       this.emit('message', message, peer);
       
       // Gestione semplice dei messaggi

@@ -1,3 +1,6 @@
+// IMPORTANTE: Questo file usa una versione fissata di undici (5.28.4) per evitare l'errore 'Cannot read properties of undefined (reading 'close')'
+// Questo errore è causato da un bug noto in libp2p o nelle sue dipendenze e verrà risolto in versioni future.
+
 import { BootstrapNode } from './core/BootstrapNode.js';
 import { Logger } from './utils/logger.js';
 import { Config } from './config/config.js';
@@ -9,9 +12,13 @@ import { displayBootstrapBanner } from './utils/banner.js';
 import { NodeStorage } from './utils/NodeStorage.js';
 import { addBootstrapNode } from './config/bootstrap-nodes.js';
 import { exec } from 'child_process';
+import undici from 'undici';
+
+// Dopo l'import aggiungi un log per verificare la versione di undici
+const logger = new Logger('BootstrapRunner');
+logger.info(`Versione di undici: ${undici.VERSION || 'sconosciuta'}`);
 
 // Inizializzazione logger
-const logger = new Logger('BootstrapRunner');
 logger.info('Inizializzazione nodo bootstrap Drakon ENTER...');
 
 /**
