@@ -37,7 +37,7 @@ async function testConnection() {
       {
         host: '34.70.102.121',
         port: 6001,
-        id: '12D3KooWCnKoG36Knx7se5znSmgmJQtfB4rqLNcCjtTs4XJPPc4m'
+        id: '12D3KooWNF7YUcH1tbAW2Rcewy5t9z1RRDRZJ7AdrPauASxmDTr8'
       },
       
       // Aggiungi i nodi bootstrap configurati localmente

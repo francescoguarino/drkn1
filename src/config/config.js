@@ -27,7 +27,7 @@ const DEFAULT_CONFIG = {
       {
         host: '34.70.102.121',
         port: 6001,
-        id: '12D3KooWGtVzgj1XiyG3GoRjEbokUYRxUsXJ225gksLWErNkvcwy'
+        id: '12D3KooWNF7YUcH1tbAW2Rcewy5t9z1RRDRZJ7AdrPauASxmDTr8'
       },
     ],
     discovery: {

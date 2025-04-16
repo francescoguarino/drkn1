@@ -10,7 +10,7 @@
 // Lista dei nodi bootstrap ufficiali
 const OFFICIAL_BOOTSTRAP_NODES = [
   {
-    id: '12D3KooWGtVzgj1XiyG3GoRjEbokUYRxUsXJ225gksLWErNkvcwy',
+    id: '12D3KooWNF7YUcH1tbAW2Rcewy5t9z1RRDRZJ7AdrPauASxmDTr8',
     host: '34.70.102.121',
     port: 6001,
     isOfficial: true,
@@ -29,7 +29,7 @@ const COMMUNITY_BOOTSTRAP_NODES = [
 // Qui puoi aggiungere i tuoi nodi bootstrap locali o quelli che conosci
 const PERSONAL_BOOTSTRAP_NODES = [
   {
-    id: '12D3KooWGtVzgj1XiyG3GoRjEbokUYRxUsXJ225gksLWErNkvcwy',
+    id: '12D3KooWNF7YUcH1tbAW2Rcewy5t9z1RRDRZJ7AdrPauASxmDTr8',
     host: '34.70.102.121',
     port: 6001,
     isOfficial: true,

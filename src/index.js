@@ -16,7 +16,7 @@ async function main(args = {}) {
       process.env.BOOTSTRAP_NODES = JSON.stringify([{
         host: '34.70.102.121',
         port: 6001,
-        id: '12D3KooWRAECGcdaVotQChTug18kGW9GZiTYrDiu4bLfqSzYTZoH'
+        id: '12D3KooWNF7YUcH1tbAW2Rcewy5t9z1RRDRZJ7AdrPauASxmDTr8'
       }]);
     }
     
