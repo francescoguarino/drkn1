@@ -260,6 +260,9 @@ export class BootstrapNode extends EventEmitter {
    * Gestisce i messaggi in arrivo
    */
   _handleMessage(message, peer) {
+    // Log dettagliato per diagnosticare la ricezione dei messaggi
+    this.logger.info(`Messaggio ricevuto da ${peer.id}: ${JSON.stringify(message)}`);
+
     // Implementa solo gestione messaggi basilari necessari per bootstrap
     switch (message.type) {
       case 'PING':
@@ -273,7 +276,7 @@ export class BootstrapNode extends EventEmitter {
           this.logger.error(`Errore nell'invio del PONG a ${peer.id}:`, err);
         });
         break;
-        
+
       case 'GET_PEERS':
         // Invia la lista dei peer connessi
         const connectedPeers = this.networkManager.getConnectedPeers();
@@ -289,7 +292,7 @@ export class BootstrapNode extends EventEmitter {
           this.logger.error(`Errore nell'invio della lista peer a ${peer.id}:`, err);
         });
         break;
-        
+
       default:
         // Ignora altri tipi di messaggi non supportati dal bootstrap node
         this.logger.debug(`Messaggio di tipo ${message.type} non gestito dal nodo bootstrap`);
@@ -323,4 +326,4 @@ export class BootstrapNode extends EventEmitter {
     // Altrimenti calcola l'uptime come la differenza tra ora e il tempo di avvio
     return Math.floor((Date.now() - this.startTime) / 1000);
   }
-} 
+}
