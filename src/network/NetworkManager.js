@@ -1085,10 +1085,53 @@ ${connectedPeers.length > 0
       // Imposta il gestore dei messaggi per questo peer
       this._setupMessageHandler(connection);
 
+      // Invia messaggio di benvenuto
+      const welcomeMessage = {
+        type: 'ENTRY_GREETING',
+        payload: {
+          message: 'Benvenuto nella rete Drakon! Sono un nodo di ingresso.',
+          bootstrapId: this.nodeId,
+          timestamp: Date.now()
+        }
+      };
+      await connection.newStream('/drakon/1.0.0').then(stream => {
+        stream.sink([Buffer.from(JSON.stringify(welcomeMessage))]);
+        this.logger.info(`Messaggio di benvenuto inviato al peer ${id}`);
+      }).catch(err => {
+        this.logger.error(`Errore nell'invio del messaggio di benvenuto a ${id}:`, err);
+      });
+
+      // Propaga il messaggio di connessione agli altri peer
+      this._propagateMessage({
+        type: 'NEW_PEER_CONNECTED',
+        payload: {
+          peerId: id,
+          timestamp: Date.now()
+        }
+      }, id);
+
       // Emetti evento di connessione
       this.emit('peer:connect', { id, connection });
     } catch (error) {
       this.logger.error('Errore nella gestione della connessione del peer:', error);
+    }
+  }
+
+  async _propagateMessage(message, excludePeerId = null) {
+    try {
+      for (const [peerId, peerData] of this.peers) {
+        if (peerId !== excludePeerId) {
+          const connection = peerData.connection;
+          await connection.newStream('/drakon/1.0.0').then(stream => {
+            stream.sink([Buffer.from(JSON.stringify(message))]);
+            this.logger.info(`Messaggio propagato al peer ${peerId}: ${JSON.stringify(message)}`);
+          }).catch(err => {
+            this.logger.error(`Errore nella propagazione del messaggio al peer ${peerId}:`, err);
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.error('Errore durante la propagazione del messaggio:', error);
     }
   }
 

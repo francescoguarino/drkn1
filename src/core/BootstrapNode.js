@@ -205,9 +205,6 @@ export class BootstrapNode extends EventEmitter {
 
       this.logger.info(`Nuovo peer connesso: ${peer.id}`);
 
-      // Invia messaggio di benvenuto al peer
-      this._sendWelcomeMessage(peer);
-
       // Propaga il messaggio di connessione agli altri peer
       this._propagateMessage({
         type: 'NEW_PEER_CONNECTED',
@@ -246,6 +243,10 @@ export class BootstrapNode extends EventEmitter {
   }
 
   async _propagateMessage(message, excludePeerId = null) {
+    if (message ) {
+      this.logger.info('Messaggio propagato:', message);
+
+    }
     try {
       const connectedPeers = this.networkManager.getConnectedPeers();
       for (const peer of connectedPeers) {
@@ -256,26 +257,6 @@ export class BootstrapNode extends EventEmitter {
       }
     } catch (error) {
       this.logger.error('Errore durante la propagazione del messaggio:', error);
-    }
-  }
-
-  /**
-   * Invia un messaggio di benvenuto a un peer appena connesso
-   */
-  async _sendWelcomeMessage(peer) {
-    try {
-      await peer.send({
-        type: 'ENTRY_GREETING',
-        payload: {
-          message: 'Benvenuto nella rete Drakon! Sono un nodo di ingresso.',
-          bootstrapId: this.nodeId,
-          timestamp: Date.now()
-        }
-      });
-      
-      this.logger.info(`Messaggio di benvenuto inviato a: ${peer.id}`);
-    } catch (error) {
-      this.logger.error(`Errore nell'invio del messaggio di benvenuto a ${peer.id}:`, error);
     }
   }
 
