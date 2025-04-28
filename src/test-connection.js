@@ -26,19 +26,30 @@ async function testConnection() {
     logger.info(`Nodo avviato con PeerId: ${node.peerId.toString()}`);
 
     // Registra eventi di connessione
-    node.addEventListener('peer:connect', (event) => {
+    node.addEventListener('peer:connect', async (event) => {
       if (event?.detail?.remotePeer) {
         logger.info(`Peer connesso: ${event.detail.remotePeer.toString()}`);
 
-        // Invia messaggi periodici al peer
-        const intervalId = setInterval(() => {
-          const message = `Ping from ${node.peerId.toString()} at ${new Date().toISOString()}`;
-          node.connectionManager.get(event.detail.remotePeer)?.streamManager?.write(message);
-          logger.info(`Messaggio inviato al peer ${event.detail.remotePeer.toString()}: ${message}`);
-        }, 5000);
+    
 
-        // Salva l'intervallo per cancellarlo alla disconnessione
-        event.detail.remotePeer.intervalId = intervalId;
+        // Ascolta il messaggio di benvenuto dal bootstrap node
+        const connection = node.connectionManager.get(event.detail.remotePeer);
+        if (connection) {
+          connection.streamManager?.on('data', (data) => {
+            const message = data.toString();
+            logger.info(`Messaggio ricevuto dal bootstrap node: ${message}`);
+
+            // Verifica se il messaggio è una propagazione di un nuovo peer
+            try {
+              const parsedMessage = JSON.parse(message);
+              if (parsedMessage.type === 'NEW_PEER_CONNECTED') {
+                logger.info(`Propagazione ricevuta: Nuovo peer connesso con ID ${parsedMessage.payload.peerId}`);
+              }
+            } catch (error) {
+              logger.warn('Impossibile parsare il messaggio ricevuto:', error);
+            }
+          });
+        }
       } else {
         logger.warn('Evento peer:connect ricevuto senza remotePeer definito');
       }

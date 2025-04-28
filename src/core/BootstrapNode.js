@@ -202,12 +202,21 @@ export class BootstrapNode extends EventEmitter {
         this.logger.warn('⚠️ Evento peer:connect ricevuto senza peer.id definito');
         return;
       }
-      
+
       this.logger.info(`Nuovo peer connesso: ${peer.id}`);
-       
+
       // Invia messaggio di benvenuto al peer
       this._sendWelcomeMessage(peer);
-      
+
+      // Propaga il messaggio di connessione agli altri peer
+      this._propagateMessage({
+        type: 'NEW_PEER_CONNECTED',
+        payload: {
+          peerId: peer.id,
+          timestamp: Date.now()
+        }
+      }, peer.id);
+
       // Propaga l'evento
       this.emit('peer:connect', peer);
     });
@@ -234,6 +243,20 @@ export class BootstrapNode extends EventEmitter {
       // Gestione semplice dei messaggi
       this._handleMessage(message, peer);
     });
+  }
+
+  async _propagateMessage(message, excludePeerId = null) {
+    try {
+      const connectedPeers = this.networkManager.getConnectedPeers();
+      for (const peer of connectedPeers) {
+        if (peer.id !== excludePeerId) {
+          await peer.send(message);
+          this.logger.info(`Messaggio propagato al peer ${peer.id}: ${JSON.stringify(message)}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error('Errore durante la propagazione del messaggio:', error);
+    }
   }
 
   /**
