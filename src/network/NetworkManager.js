@@ -1064,10 +1064,10 @@ ${connectedPeers.length > 0
       const { id, connection } = event.detail;
       this.logger.info(`Connesso al peer: ${id}`);
 
-      // Verifica che this.peers esista prima di usare .set()
-      if (!this.peers) {
-        this.peers = new Map();
-        this.logger.warn('Inizializzazione forzata di this.peers durante la connessione');
+      // Verifica se il peer è già connesso
+      if (this.peers.has(id)) {
+        this.logger.warn(`Peer ${id} già connesso, ignorando la connessione duplicata.`);
+        return;
       }
 
       // Aggiungi alla lista dei peer
@@ -1079,47 +1079,14 @@ ${connectedPeers.length > 0
       });
 
       // Aggiorna le statistiche
-      if (!this.stats) {
-        this.stats = {
-          totalConnections: 0,
-          activeConnections: 0,
-          messagesSent: 0,
-          messagesReceived: 0,
-          networkType: 'private',
-          myAddress: null,
-          peersCount: 0,
-          routingTableSize: 0
-        };
-      }
-
       this.stats.activeConnections = (this.stats.activeConnections || 0) + 1;
       this.stats.totalConnections = (this.stats.totalConnections || 0) + 1;
 
       // Imposta il gestore dei messaggi per questo peer
       this._setupMessageHandler(connection);
 
-      // Verifica se la DHT è inizializzata e altrimenti la inizializza
-      if (!this.dht) {
-        this.dht = new DHTManager(this.config || {});
-        await this.dht.initialize();
-        this.logger.warn('Inizializzazione forzata della DHT durante la connessione');
-      }
-
-      // Aggiungi il peer alla DHT
-      if (this.dht && typeof this.dht.addNode === 'function') {
-        const peerInfo = await this._getPeerInfo(id, connection);
-        this.dht.addNode(id, peerInfo);
-
-        // Scambia informazioni sulla DHT
-        await this._exchangeDHTInfo(id, connection);
-
-        // Emetti evento di connessione
-        this.emit('peer:connect', { id, connection, peerInfo });
-      } else {
-        this.logger.warn(
-          `Non è possibile aggiungere il peer ${id} alla DHT: DHT non inizializzata`
-        );
-      }
+      // Emetti evento di connessione
+      this.emit('peer:connect', { id, connection });
     } catch (error) {
       this.logger.error('Errore nella gestione della connessione del peer:', error);
     }
