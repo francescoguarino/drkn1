@@ -393,4 +393,14 @@ export class APIServer {
       });
     });
   }
+
+  addEndpoint(path, method, handler) {
+    if (!this.app) {
+      throw new Error('API Server is not initialized');
+    }
+
+    // Dynamically add the endpoint to the Express app
+    this.app[method.toLowerCase()](path, handler);
+    this.logger.info(`Endpoint added: [${method}] ${path}`);
+  }
 }
