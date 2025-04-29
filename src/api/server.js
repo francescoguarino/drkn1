@@ -320,6 +320,21 @@ export class APIServer {
       }
     });
 
+    // Add the /api/peers endpoint
+    this.app.get('/api/peers', async (req, res) => {
+      try {
+        if (!this.node.networkManager) {
+          return res.status(503).json({ error: 'Network Manager non disponibile' });
+        }
+
+        const peers = this.node.networkManager.getConnectedPeers();
+        res.json({ peers });
+      } catch (error) {
+        this.logger.error(`Errore nel recupero dei peer: ${error.message}`);
+        res.status(500).json({ error: 'Errore nel recupero dei peer' });
+      }
+    });
+
     // Mining control API
     this.app.post('/mining/start', (req, res) => {
       try {
