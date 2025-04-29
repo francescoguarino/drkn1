@@ -685,6 +685,10 @@ ${connectedPeers.length > 0
           bootstrapNodes.push(`/dns4/${node.host}/tcp/${node.port}/p2p/${node.id}`);
           // Formato semplice (utile per alcuni casi)
           bootstrapNodes.push(`/ip4/${node.host}/tcp/${node.port}`);
+          // Formato IPv6 (se disponibile)
+          if (node.ipv6) {
+            bootstrapNodes.push(`/ip6/${node.ipv6}/tcp/${node.port}/p2p/${node.id}`);
+          }
         }
       }
 
@@ -976,6 +980,8 @@ ${connectedPeers.length > 0
 
           // Aggiungi un piccolo ritardo tra i tentativi
           await new Promise(resolve => setTimeout(resolve, 1000));
+
+          
 
           // Usa il multiaddr completo invece dell'ID
           await this.node.dial(multiaddr);

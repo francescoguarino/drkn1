@@ -117,6 +117,7 @@ export class BootstrapNode extends EventEmitter {
       // Avvia il server API
       if (this.config.api && this.config.api.enabled) {
         await this.apiServer.start();
+        await this._setupApiEndpoints(); // Configura gli endpoint API
       }
 
       // Ottieni il PeerId corrente dal networkManager
@@ -329,5 +330,19 @@ export class BootstrapNode extends EventEmitter {
 
     // Altrimenti calcola l'uptime come la differenza tra ora e il tempo di avvio
     return Math.floor((Date.now() - this.startTime) / 1000);
+  }
+
+  async _setupApiEndpoints() {
+    if (this.apiServer) {
+        this.apiServer.addEndpoint('/api/peers', 'GET', async (req, res) => {
+            try {
+                const peers = this.networkManager.getConnectedPeers();
+                res.json({ peers });
+            } catch (error) {
+                this.logger.error('Errore nel recupero della lista dei peer:', error);
+                res.status(500).json({ error: 'Errore interno del server' });
+            }
+        });
+    }
   }
 }
