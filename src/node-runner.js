@@ -160,9 +160,9 @@ function ensureRequiredConfigs(config, options) {
       port: options.port || 6001,
       bootstrapNodes: options.bootstrapNodes || [
         {
-          host: '34.70.102.121',
+          host: '34.147.53.15',
           port: 6001,
-          id: '12D3KooWNF7YUcH1tbAW2Rcewy5t9z1RRDRZJ7AdrPauASxmDTr8'
+          id: '12D3KooWArtAZ6Q9mMiWPPsnRKTSvsxBXzbpK5dhW1QuBH1bstse'
         }
       ],
       protocols: ['/drakon/1.0.0']
@@ -176,9 +176,9 @@ function ensureRequiredConfigs(config, options) {
     config.p2p.bootstrapNodes = [
   
       {
-        host: '34.70.102.121',
+        host: '34.147.53.15',
         port: 6001,
-        id: '12D3KooWNF7YUcH1tbAW2Rcewy5t9z1RRDRZJ7AdrPauASxmDTr8'
+        id: '12D3KooWArtAZ6Q9mMiWPPsnRKTSvsxBXzbpK5dhW1QuBH1bstse'
       }
     ];
   }

@@ -52,6 +52,7 @@ async function runBootstrapNode(options = {}) {
       config.config.node.name = `bootstrap-${crypto.randomBytes(4).toString('hex')}`;
     }
 
+    
     // IMPORTANTE: Verifica se esistono informazioni salvate prima di generare un nuovo ID
     const nodeStorage = new NodeStorage(config.config);
     const savedInfo = await nodeStorage.loadNodeInfo();
@@ -62,7 +63,7 @@ async function runBootstrapNode(options = {}) {
     logger.info(`Informazioni salvate trovate: ${!!savedInfo}`);
     if (savedInfo) {
       logger.info(`Contenuto informazioni: ${JSON.stringify({
-        nodeId: savedInfo.nodeId || 'non trovato',
+        nodeId: savedInfo.nodeId || 'non trovato ',
         hasPeerId: !!savedInfo.peerId,
         peerIdType: savedInfo.peerId ? typeof savedInfo.peerId : 'non trovato',
         peerIdComplete: savedInfo.peerId && typeof savedInfo.peerId === 'object' && 
@@ -108,7 +109,7 @@ async function runBootstrapNode(options = {}) {
       config.config.p2p = config.config.p2p || {};
       config.config.p2p.port = options.port;
       config.config.api = config.config.api || {};
-      config.config.api.port = options.port + 1000;
+      config.config.api.port = options.port + 1000;      
     }
 
     // MODIFICATO: Disabilita la connessione ad altri nodi bootstrap
@@ -217,6 +218,7 @@ async function runBootstrapNode(options = {}) {
       logger.info('Peer connesso, stampo riepilogo aggiornato');
       // Stampa il riepilogo aggiornato con il PeerId corretto
       node.networkManager._printSummaryTable();
+      
     });
 
     node.networkManager.on('peer:disconnect', () => {
